@@ -85,9 +85,13 @@
         document.getElementById('mc-birth_date').value = (c.birth_date || '').slice(0, 10);
         document.getElementById('mc-medical_history').value = c.medical_history || '';
         document.getElementById('mc-allergies').value = c.allergies || '';
+        document.getElementById('mc-diet_habits').value = c.diet_habits || '';
+        document.getElementById('mc-chronic_diseases').value = c.chronic_diseases || '';
+        document.getElementById('mc-health_status').value = c.health_status || '';
+        document.getElementById('mc-therapy_contraindications').value = c.therapy_contraindications || '';
       });
     } else {
-      ['mc-name', 'mc-id_card', 'mc-phone', 'mc-email', 'mc-address', 'mc-gender', 'mc-birth_date', 'mc-medical_history', 'mc-allergies'].forEach(function (k) {
+      ['mc-name', 'mc-id_card', 'mc-phone', 'mc-email', 'mc-address', 'mc-gender', 'mc-birth_date', 'mc-medical_history', 'mc-allergies', 'mc-diet_habits', 'mc-chronic_diseases', 'mc-health_status', 'mc-therapy_contraindications'].forEach(function (k) {
         var e = document.getElementById(k);
         if (e) e.value = e.tagName === 'SELECT' ? '' : '';
       });
@@ -135,6 +139,26 @@
     });
   }
 
+
+  function checkAppointmentAvailability() {
+    var date = document.getElementById('apt-date').value;
+    var start = document.getElementById('apt-start').value;
+    var end = document.getElementById('apt-end').value;
+    if (!date || !start || !end) {
+      document.getElementById('apt-availability').textContent = '请先选择日期、开始时间、结束时间';
+      return;
+    }
+    get('/api/equipment/availability-summary?date=' + encodeURIComponent(date) + '&start_time=' + encodeURIComponent(start) + '&end_time=' + encodeURIComponent(end)).then(function (res) {
+      if (res.error) {
+        document.getElementById('apt-availability').textContent = res.error;
+        return;
+      }
+      var names = (res.available_equipment || []).map(function (e) { return e.name; }).join('、');
+      document.getElementById('apt-availability').textContent =
+        '该时段可预约设备：' + res.available_count + '/' + res.total_equipment + (names ? '（' + names + '）' : '');
+    });
+  }
+
   function loadUsagePage() {
     fillCustomerSelect('usage-customer');
     fillEquipmentSelect('usage-equipment');
@@ -168,7 +192,11 @@
       gender: document.getElementById('mc-gender').value,
       birth_date: document.getElementById('mc-birth_date').value || null,
       medical_history: document.getElementById('mc-medical_history').value,
-      allergies: document.getElementById('mc-allergies').value
+      allergies: document.getElementById('mc-allergies').value,
+      diet_habits: document.getElementById('mc-diet_habits').value,
+      chronic_diseases: document.getElementById('mc-chronic_diseases').value,
+      health_status: document.getElementById('mc-health_status').value,
+      therapy_contraindications: document.getElementById('mc-therapy_contraindications').value
     };
     (id ? put('/api/customers/' + id, body) : post('/api/customers', body)).then(function (res) {
       if (res.error) { showMsg('customer-msg', res.error, true); return; }
@@ -197,6 +225,8 @@
       loadHealthPage();
     });
   });
+
+  document.getElementById('btn-apt-check').addEventListener('click', checkAppointmentAvailability);
 
   document.getElementById('btn-apt-save').addEventListener('click', function () {
     var body = {

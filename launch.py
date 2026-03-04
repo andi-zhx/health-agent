@@ -8,6 +8,7 @@ from __future__ import print_function
 import os
 import sys
 import traceback
+import subprocess
 
 # 先切换到本脚本所在目录，保证数据库和 static 路径正确
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,25 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 ERROR_LOG = os.path.join(SCRIPT_DIR, 'error_log.txt')
+
+
+def install_requirements_auto():
+    """尝试自动安装 requirements.txt 依赖"""
+    req = os.path.join(SCRIPT_DIR, 'requirements.txt')
+    if not os.path.exists(req):
+        return False, '未找到 requirements.txt，无法自动安装依赖。'
+
+    cmd = [sys.executable, '-m', 'pip', 'install', '-r', req]
+    try:
+        proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+    except Exception as e:
+        return False, '执行依赖安装命令失败：%s' % e
+
+    if proc.returncode == 0:
+        return True, '依赖安装成功。'
+
+    detail = (proc.stdout or '') + '\n' + (proc.stderr or '')
+    return False, '自动安装依赖失败。\n命令：%s\n\n%s' % (' '.join(cmd), detail.strip())
 
 
 def show_error(title, msg):
@@ -53,16 +73,23 @@ def main():
     try:
         from app import app, init_db
     except ModuleNotFoundError as e:
-        tip = (
-            '缺少 Python 依赖包。\n\n'
-            '请先安装依赖：\n'
-            '1. 在本程序所在目录打开命令行（或按 Win+R 输入 cmd 后 cd 到该目录）\n'
-            '2. 执行：pip install -r requirements.txt\n\n'
-            '也可双击运行同目录下的「安装依赖.bat」自动安装。\n\n'
-            '错误详情：%s'
-        ) % e
-        show_error('医疗系统启动失败', tip)
-        sys.exit(1)
+        ok, info = install_requirements_auto()
+        if ok:
+            try:
+                from app import app, init_db
+            except Exception as e2:
+                show_error('医疗系统启动失败', '已自动安装依赖，但重新导入仍失败：%s\n\n%s' % (e2, traceback.format_exc()))
+                sys.exit(1)
+        else:
+            tip = (
+                '缺少 Python 依赖包（%s）。\n\n'
+                '已尝试自动安装但失败，请手动处理：\n'
+                '1. 双击运行「安装依赖.bat」，或\n'
+                '2. 在命令行执行："%s" -m pip install -r requirements.txt\n\n'
+                '%s'
+            ) % (e, sys.executable, info)
+            show_error('医疗系统启动失败', tip)
+            sys.exit(1)
     except Exception as e:
         show_error('医疗系统启动失败', '导入失败：%s\n\n%s' % (e, traceback.format_exc()))
         sys.exit(1)
