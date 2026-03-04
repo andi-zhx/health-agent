@@ -1,0 +1,339 @@
+(function () {
+  const API = '';
+  function get(url) { return fetch(API + url).then(function (r) { return r.json(); }); }
+  function post(url, body) { return fetch(API + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }); }
+  function put(url, body) { return fetch(API + url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }); }
+
+  function showPage(name) {
+    document.querySelectorAll('.page').forEach(function (el) { el.classList.add('hide'); });
+    document.querySelectorAll('.sidebar a').forEach(function (a) { a.classList.remove('active'); });
+    var page = document.getElementById('page-' + name);
+    var link = document.querySelector('[data-page="' + name + '"]');
+    if (page) page.classList.remove('hide');
+    if (link) link.classList.add('active');
+    if (name === 'home') loadStats();
+    if (name === 'customers') loadCustomers();
+    if (name === 'health') loadHealthPage();
+    if (name === 'appointments') loadAppointmentsPage();
+    if (name === 'checkins') loadCheckinsPage();
+    if (name === 'usage') loadUsagePage();
+    if (name === 'surveys') loadSurveysPage();
+  }
+
+  function loadStats() {
+    get('/api/dashboard/stats').then(function (data) {
+      var html = [
+        { num: data.total_customers, label: '客户总数' },
+        { num: data.today_appointments, label: '今日预约' },
+        { num: data.pending_appointments, label: '待处理预约' },
+        { num: data.available_equipment + '/' + data.total_equipment, label: '可用设备' }
+      ].map(function (s) { return '<div class="stat-box"><div class="num">' + s.num + '</div><div class="label">' + s.label + '</div></div>'; }).join('');
+      document.getElementById('stats').innerHTML = html;
+    }).catch(function () {});
+  }
+
+  function fillCustomerSelect(selId) {
+    get('/api/customers').then(function (list) {
+      var sel = document.getElementById(selId);
+      if (!sel) return;
+      var old = sel.value;
+      sel.innerHTML = '<option value="">请选择客户</option>' + (list || []).map(function (c) { return '<option value="' + c.id + '">' + c.name + ' ' + (c.phone || '') + '</option>'; }).join('');
+      if (old) sel.value = old;
+    });
+  }
+
+  function fillEquipmentSelect(selId) {
+    get('/api/equipment').then(function (list) {
+      var sel = document.getElementById(selId);
+      if (!sel) return;
+      var old = sel.value;
+      sel.innerHTML = '<option value="">请选择设备</option>' + (list || []).map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+      if (old) sel.value = old;
+    });
+  }
+
+  function loadCustomers() {
+    var q = document.getElementById('customer-search').value;
+    get('/api/customers' + (q ? '?search=' + encodeURIComponent(q) : '')).then(function (list) {
+      var tbody = document.getElementById('customer-list');
+      tbody.innerHTML = (list || []).map(function (c) {
+        return '<tr><td>' + c.name + '</td><td>' + (c.id_card || '') + '</td><td>' + (c.phone || '') + '</td><td><button class="btn btn-small btn-primary" data-edit="' + c.id + '">编辑</button></td></tr>';
+      }).join('');
+      tbody.querySelectorAll('[data-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () { openCustomerModal(btn.dataset.edit); });
+      });
+    });
+  }
+
+  function showMsg(id, text, isErr) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = text ? '<div class="msg ' + (isErr ? 'err' : 'ok') + '">' + text + '</div>' : '';
+  }
+
+  function openCustomerModal(id) {
+    document.getElementById('modal-customer-id').value = id || '';
+    document.getElementById('modal-customer-title').textContent = id ? '编辑客户' : '新增客户';
+    if (id) {
+      get('/api/customers/' + id).then(function (c) {
+        document.getElementById('mc-name').value = c.name || '';
+        document.getElementById('mc-id_card').value = c.id_card || '';
+        document.getElementById('mc-phone').value = c.phone || '';
+        document.getElementById('mc-email').value = c.email || '';
+        document.getElementById('mc-address').value = c.address || '';
+        document.getElementById('mc-gender').value = c.gender || '';
+        document.getElementById('mc-birth_date').value = (c.birth_date || '').slice(0, 10);
+        document.getElementById('mc-medical_history').value = c.medical_history || '';
+        document.getElementById('mc-allergies').value = c.allergies || '';
+      });
+    } else {
+      ['mc-name', 'mc-id_card', 'mc-phone', 'mc-email', 'mc-address', 'mc-gender', 'mc-birth_date', 'mc-medical_history', 'mc-allergies'].forEach(function (k) {
+        var e = document.getElementById(k);
+        if (e) e.value = e.tagName === 'SELECT' ? '' : '';
+      });
+    }
+    document.getElementById('modal-customer').classList.remove('hide');
+  }
+
+  function loadHealthPage() {
+    fillCustomerSelect('health-customer');
+    get('/api/health-records').then(function (list) {
+      var tbody = document.getElementById('health-list');
+      tbody.innerHTML = (list || []).map(function (h) {
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.record_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.blood_pressure || '-') + '</td><td>' + (h.symptoms || h.diagnosis || '-') + '</td></tr>';
+      }).join('');
+    });
+  }
+
+  function loadAppointmentsPage() {
+    fillCustomerSelect('apt-customer');
+    fillEquipmentSelect('apt-equipment');
+    get('/api/appointments').then(function (list) {
+      var tbody = document.getElementById('apt-list');
+      tbody.innerHTML = (list || []).map(function (a) {
+        var cancelBtn = a.status === 'scheduled' ? '<button class="btn btn-small btn-danger" data-cancel="' + a.id + '">取消</button>' : '';
+        return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.equipment_name || '') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.status || '') + '</td><td>' + cancelBtn + '</td></tr>';
+      }).join('');
+      tbody.querySelectorAll('[data-cancel]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          post('/api/appointments/' + btn.dataset.cancel + '/cancel').then(function () { loadAppointmentsPage(); });
+        });
+      });
+    });
+  }
+
+  function loadCheckinsPage() {
+    fillCustomerSelect('checkin-customer');
+    var now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    document.getElementById('checkin-time').value = now.toISOString().slice(0, 16);
+    get('/api/visit-checkins').then(function (list) {
+      var tbody = document.getElementById('checkin-list');
+      tbody.innerHTML = (list || []).map(function (v) {
+        return '<tr><td>' + (v.customer_name || '') + '</td><td>' + (v.checkin_time || '') + '</td><td>' + (v.purpose || '-') + '</td><td>' + (v.notes || '-') + '</td></tr>';
+      }).join('');
+    });
+  }
+
+  function loadUsagePage() {
+    fillCustomerSelect('usage-customer');
+    fillEquipmentSelect('usage-equipment');
+    get('/api/equipment-usage').then(function (list) {
+      var tbody = document.getElementById('usage-list');
+      tbody.innerHTML = (list || []).map(function (u) {
+        return '<tr><td>' + (u.customer_name || '') + '</td><td>' + (u.equipment_name || '') + '</td><td>' + (u.usage_date || '') + '</td><td>' + (u.duration_minutes || '-') + '</td><td>' + (u.operator || '-') + '</td></tr>';
+      }).join('');
+    });
+  }
+
+  function loadSurveysPage() {
+    fillCustomerSelect('survey-customer');
+  }
+
+  document.querySelectorAll('.sidebar a').forEach(function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); showPage(a.dataset.page); });
+  });
+
+  document.getElementById('btn-customer-search').addEventListener('click', loadCustomers);
+  document.getElementById('btn-customer-add').addEventListener('click', function () { openCustomerModal(null); });
+  document.getElementById('btn-modal-cancel').addEventListener('click', function () { document.getElementById('modal-customer').classList.add('hide'); });
+  document.getElementById('btn-modal-save').addEventListener('click', function () {
+    var id = document.getElementById('modal-customer-id').value;
+    var body = {
+      name: document.getElementById('mc-name').value,
+      id_card: document.getElementById('mc-id_card').value,
+      phone: document.getElementById('mc-phone').value,
+      email: document.getElementById('mc-email').value,
+      address: document.getElementById('mc-address').value,
+      gender: document.getElementById('mc-gender').value,
+      birth_date: document.getElementById('mc-birth_date').value || null,
+      medical_history: document.getElementById('mc-medical_history').value,
+      allergies: document.getElementById('mc-allergies').value
+    };
+    (id ? put('/api/customers/' + id, body) : post('/api/customers', body)).then(function (res) {
+      if (res.error) { showMsg('customer-msg', res.error, true); return; }
+      document.getElementById('modal-customer').classList.add('hide');
+      showMsg('customer-msg', res.message || '保存成功');
+      loadCustomers();
+    });
+  });
+
+  document.getElementById('btn-health-save').addEventListener('click', function () {
+    var cid = document.getElementById('health-customer').value;
+    if (!cid) { showMsg('health-msg', '请选择客户', true); return; }
+    var body = {
+      customer_id: parseInt(cid, 10),
+      record_date: document.getElementById('health-date').value,
+      height_cm: document.getElementById('health-height').value || null,
+      weight_kg: document.getElementById('health-weight').value || null,
+      blood_pressure: document.getElementById('health-bp').value || null,
+      symptoms: document.getElementById('health-symptoms').value || null,
+      diagnosis: document.getElementById('health-diagnosis').value || null,
+      notes: document.getElementById('health-notes').value || null
+    };
+    post('/api/health-records', body).then(function (res) {
+      if (res.error) { showMsg('health-msg', res.error, true); return; }
+      showMsg('health-msg', res.message);
+      loadHealthPage();
+    });
+  });
+
+  document.getElementById('btn-apt-save').addEventListener('click', function () {
+    var body = {
+      customer_id: document.getElementById('apt-customer').value,
+      equipment_id: document.getElementById('apt-equipment').value,
+      appointment_date: document.getElementById('apt-date').value,
+      start_time: document.getElementById('apt-start').value,
+      end_time: document.getElementById('apt-end').value,
+      notes: document.getElementById('apt-notes').value
+    };
+    if (!body.customer_id || !body.equipment_id || !body.appointment_date || !body.start_time || !body.end_time) {
+      showMsg('apt-msg', '请填写必填项', true);
+      return;
+    }
+    post('/api/appointments', body).then(function (res) {
+      if (res.error) { showMsg('apt-msg', res.error, true); return; }
+      showMsg('apt-msg', res.message);
+      loadAppointmentsPage();
+    });
+  });
+
+  document.getElementById('btn-checkin-save').addEventListener('click', function () {
+    var cid = document.getElementById('checkin-customer').value;
+    if (!cid) { showMsg('checkin-msg', '请选择客户', true); return; }
+    var t = document.getElementById('checkin-time').value;
+    if (!t) {
+      var d = new Date();
+      t = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    var body = {
+      customer_id: parseInt(cid, 10),
+      checkin_time: t.replace('T', ' ').slice(0, 16),
+      purpose: document.getElementById('checkin-purpose').value,
+      notes: document.getElementById('checkin-notes').value
+    };
+    post('/api/visit-checkins', body).then(function (res) {
+      if (res.error) { showMsg('checkin-msg', res.error, true); return; }
+      showMsg('checkin-msg', res.message);
+      loadCheckinsPage();
+    });
+  });
+
+  document.getElementById('btn-usage-save').addEventListener('click', function () {
+    var body = {
+      customer_id: document.getElementById('usage-customer').value,
+      equipment_id: document.getElementById('usage-equipment').value,
+      usage_date: document.getElementById('usage-date').value,
+      duration_minutes: document.getElementById('usage-duration').value || null,
+      parameters: document.getElementById('usage-params').value,
+      operator: document.getElementById('usage-operator').value
+    };
+    if (!body.customer_id || !body.equipment_id || !body.usage_date) {
+      showMsg('usage-msg', '请选择客户、设备和日期', true);
+      return;
+    }
+    post('/api/equipment-usage', body).then(function (res) {
+      if (res.error) { showMsg('usage-msg', res.error, true); return; }
+      showMsg('usage-msg', res.message);
+      loadUsagePage();
+    });
+  });
+
+  document.getElementById('btn-survey-save').addEventListener('click', function () {
+    var cid = document.getElementById('survey-customer').value;
+    if (!cid) { showMsg('survey-msg', '请选择客户', true); return; }
+    var body = {
+      customer_id: parseInt(cid, 10),
+      service_rating: document.getElementById('survey-service').value || 5,
+      equipment_rating: document.getElementById('survey-equipment').value || 5,
+      environment_rating: document.getElementById('survey-env').value || 5,
+      staff_rating: document.getElementById('survey-staff').value || 5,
+      overall_rating: document.getElementById('survey-overall').value || 5,
+      feedback: document.getElementById('survey-feedback').value,
+      suggestions: document.getElementById('survey-feedback').value
+    };
+    post('/api/satisfaction-surveys', body).then(function (res) {
+      if (res.error) { showMsg('survey-msg', res.error, true); return; }
+      showMsg('survey-msg', res.message);
+    });
+  });
+
+  document.getElementById('btn-export-customers').addEventListener('click', function () {
+    get('/api/export/customers').then(function (data) {
+      if (data.download_url) window.location.href = data.download_url;
+      showMsg('export-msg', '已触发下载');
+    });
+  });
+  document.getElementById('btn-export-appointments').addEventListener('click', function () {
+    get('/api/export/appointments').then(function (data) {
+      if (data.download_url) window.location.href = data.download_url;
+      showMsg('export-msg', '已触发下载');
+    });
+  });
+  document.getElementById('btn-export-usage').addEventListener('click', function () {
+    get('/api/export/equipment-usage').then(function (data) {
+      if (data.download_url) window.location.href = data.download_url;
+      showMsg('export-msg', '已触发下载');
+    });
+  });
+
+  document.getElementById('btn-search').addEventListener('click', function () {
+    var q = document.getElementById('search-q').value.trim();
+    var type = document.getElementById('search-type').value;
+    var url = '/api/search?type=' + type + (q ? '&q=' + encodeURIComponent(q) : '');
+    get(url).then(function (data) {
+      var html = '';
+      var labels = { customers: '客户信息', health_records: '健康档案', appointments: '预约记录', visit_checkins: '来访签到', equipment_usage: '仪器使用', surveys: '满意度' };
+      var cols = {
+        customers: ['name', 'id_card', 'phone', 'address'],
+        health_records: ['customer_name', 'record_date', 'height_cm', 'weight_kg', 'blood_pressure', 'symptoms', 'diagnosis'],
+        appointments: ['customer_name', 'equipment_name', 'appointment_date', 'start_time', 'end_time', 'status'],
+        visit_checkins: ['customer_name', 'checkin_time', 'purpose', 'notes'],
+        equipment_usage: ['customer_name', 'equipment_name', 'usage_date', 'duration_minutes', 'operator'],
+        surveys: ['customer_name', 'overall_rating', 'feedback', 'survey_date']
+      };
+      Object.keys(labels).forEach(function (key) {
+        var arr = data[key];
+        if (!arr || !arr.length) return;
+        html += '<div class="result-section"><h3>' + labels[key] + ' (' + arr.length + ')</h3><table><thead><tr>';
+        var c = cols[key] || Object.keys(arr[0] || {});
+        c.forEach(function (k) { html += '<th>' + k + '</th>'; });
+        html += '</tr></thead><tbody>';
+        arr.forEach(function (row) {
+          html += '<tr>';
+          c.forEach(function (k) { html += '<td>' + (row[k] != null ? row[k] : '') + '</td>'; });
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+      });
+      document.getElementById('search-result').innerHTML = html || '<p style="color:#666">无结果</p>';
+    });
+  });
+
+  var today = new Date().toISOString().slice(0, 10);
+  document.getElementById('health-date').value = today;
+  document.getElementById('apt-date').value = today;
+  document.getElementById('usage-date').value = today;
+
+  showPage('home');
+})();
