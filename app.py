@@ -45,10 +45,27 @@ def init_db():
             birth_date TEXT,
             medical_history TEXT,
             allergies TEXT,
+            diet_habits TEXT,
+            chronic_diseases TEXT,
+            health_status TEXT,
+            therapy_contraindications TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # 历史数据库兼容：缺失字段时自动补齐
+    c.execute('PRAGMA table_info(customers)')
+    customer_columns = {row[1] for row in c.fetchall()}
+    extra_customer_columns = {
+        'diet_habits': 'TEXT',
+        'chronic_diseases': 'TEXT',
+        'health_status': 'TEXT',
+        'therapy_contraindications': 'TEXT',
+    }
+    for col, col_type in extra_customer_columns.items():
+        if col not in customer_columns:
+            c.execute(f'ALTER TABLE customers ADD COLUMN {col} {col_type}')
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS equipment (
@@ -227,11 +244,12 @@ def api_customer_create():
     c = conn.cursor()
     try:
         c.execute('''
-            INSERT INTO customers (name, id_card, phone, email, address, gender, birth_date, medical_history, allergies)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            INSERT INTO customers (name, id_card, phone, email, address, gender, birth_date, medical_history, allergies, diet_habits, chronic_diseases, health_status, therapy_contraindications)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         ''', (
             d.get('name'), d.get('id_card'), d.get('phone'), d.get('email'), d.get('address'),
-            d.get('gender'), d.get('birth_date'), d.get('medical_history'), d.get('allergies')
+            d.get('gender'), d.get('birth_date'), d.get('medical_history'), d.get('allergies'),
+            d.get('diet_habits'), d.get('chronic_diseases'), d.get('health_status'), d.get('therapy_contraindications')
         ))
         conn.commit()
         id = c.lastrowid
@@ -252,10 +270,11 @@ def api_customer_update(cid):
         conn.close()
         return jsonify({'error': '客户不存在'}), 404
     c.execute('''
-        UPDATE customers SET name=?, id_card=?, phone=?, email=?, address=?, gender=?, birth_date=?, medical_history=?, allergies=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+        UPDATE customers SET name=?, id_card=?, phone=?, email=?, address=?, gender=?, birth_date=?, medical_history=?, allergies=?, diet_habits=?, chronic_diseases=?, health_status=?, therapy_contraindications=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
     ''', (
         d.get('name'), d.get('id_card'), d.get('phone'), d.get('email'), d.get('address'),
-        d.get('gender'), d.get('birth_date'), d.get('medical_history'), d.get('allergies'), cid
+        d.get('gender'), d.get('birth_date'), d.get('medical_history'), d.get('allergies'),
+        d.get('diet_habits'), d.get('chronic_diseases'), d.get('health_status'), d.get('therapy_contraindications'), cid
     ))
     conn.commit()
     conn.close()
@@ -369,6 +388,38 @@ def api_equipment_available():
     rows = c.fetchall()
     conn.close()
     return jsonify(row_list(rows))
+
+
+@app.route('/api/equipment/availability-summary', methods=['GET'])
+def api_equipment_availability_summary():
+    date = request.args.get('date')
+    start_time = request.args.get('start_time')
+    end_time = request.args.get('end_time')
+    if not all([date, start_time, end_time]):
+        return jsonify({'error': '缺少 date, start_time, end_time'}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, name FROM equipment WHERE status='available' ORDER BY name")
+    all_equipment = row_list(c.fetchall())
+    c.execute('''
+        SELECT DISTINCT equipment_id FROM appointments
+        WHERE appointment_date=? AND status='scheduled'
+        AND ((start_time<=? AND end_time>?) OR (start_time<? AND end_time>=?) OR (start_time>=? AND end_time<=?))
+    ''', (date, start_time, start_time, end_time, end_time, start_time, end_time))
+    booked_ids = {r['equipment_id'] for r in c.fetchall()}
+    conn.close()
+
+    available_equipment = [e for e in all_equipment if e['id'] not in booked_ids]
+    return jsonify({
+        'date': date,
+        'start_time': start_time,
+        'end_time': end_time,
+        'total_equipment': len(all_equipment),
+        'available_count': len(available_equipment),
+        'booked_count': len(booked_ids),
+        'available_equipment': available_equipment,
+    })
 
 
 # ========== 预约 ==========

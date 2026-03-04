@@ -137,8 +137,10 @@
             <input type="text" id="apt-notes" placeholder="可选">
           </div>
           <div class="form-row">
+            <button class="btn btn-primary" id="btn-apt-check">检查可预约余量</button>
             <button class="btn btn-primary" id="btn-apt-save">保存预约</button>
           </div>
+          <div id="apt-availability" style="color:#2c3e50;margin-bottom:8px"></div>
           <div id="apt-msg"></div>
           <table><thead><tr><th>客户</th><th>设备</th><th>日期</th><th>时间</th><th>状态</th><th>操作</th></tr></thead><tbody id="apt-list"></tbody></table>
         </div>
@@ -262,6 +264,10 @@
       <div class="form-row"><label>出生日期</label><input type="date" id="mc-birth_date"></div>
       <div class="form-row"><label>病史</label><textarea id="mc-medical_history"></textarea></div>
       <div class="form-row"><label>过敏史</label><textarea id="mc-allergies"></textarea></div>
+      <div class="form-row"><label>饮食习惯</label><textarea id="mc-diet_habits" placeholder="如：低盐、清淡、忌辛辣"></textarea></div>
+      <div class="form-row"><label>基础疾病</label><textarea id="mc-chronic_diseases" placeholder="如：高血压、糖尿病"></textarea></div>
+      <div class="form-row"><label>健康状况</label><textarea id="mc-health_status" placeholder="近期状态、风险提示"></textarea></div>
+      <div class="form-row"><label>理疗禁忌</label><textarea id="mc-therapy_contraindications" placeholder="不适宜项目与注意事项"></textarea></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-modal-cancel">取消</button>
         <button class="btn btn-primary" id="btn-modal-save">保存</button>
