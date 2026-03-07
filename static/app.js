@@ -30,6 +30,73 @@
       ].map(function (s) { return '<div class="stat-box"><div class="num">' + s.num + '</div><div class="label">' + s.label + '</div></div>'; }).join('');
       document.getElementById('stats').innerHTML = html;
     }).catch(function () {});
+
+    get('/api/dashboard/analytics').then(function (data) {
+      renderAppointmentTrend(data.appointment_trend || []);
+      renderAppointmentStatus(data.appointment_status || []);
+      renderEquipmentUsageTop(data.equipment_usage_top || []);
+      renderSatisfactionSummary(data.satisfaction || {}, data.customer_activity || {});
+    }).catch(function () {
+      document.getElementById('appointment-trend').innerHTML = '<p style="color:#666">暂无数据</p>';
+      document.getElementById('appointment-status').innerHTML = '<tr><td colspan="2">暂无数据</td></tr>';
+      document.getElementById('equipment-usage-top').innerHTML = '<tr><td colspan="3">暂无数据</td></tr>';
+      document.getElementById('satisfaction-summary').innerHTML = '<tr><td>暂无数据</td><td>-</td></tr>';
+    });
+  }
+
+  function renderAppointmentTrend(list) {
+    var box = document.getElementById('appointment-trend');
+    if (!box) return;
+    if (!list.length) {
+      box.innerHTML = '<p style="color:#666">暂无预约数据</p>';
+      return;
+    }
+    var max = Math.max.apply(null, list.map(function (x) { return x.count || 0; }).concat([1]));
+    box.innerHTML = list.map(function (x) {
+      var pct = Math.round(((x.count || 0) / max) * 100);
+      return '<div class="trend-bar"><div class="date">' + x.date + '</div><div class="bar"><span style="width:' + pct + '%"></span></div><div class="value">' + (x.count || 0) + '</div></div>';
+    }).join('');
+  }
+
+  function renderAppointmentStatus(list) {
+    var tbody = document.getElementById('appointment-status');
+    if (!tbody) return;
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="2">暂无数据</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map(function (x) {
+      var label = x.status === 'scheduled' ? '已预约' : (x.status === 'cancelled' ? '已取消' : (x.status || '-'));
+      return '<tr><td>' + label + '</td><td>' + x.n + '</td></tr>';
+    }).join('');
+  }
+
+  function renderEquipmentUsageTop(list) {
+    var tbody = document.getElementById('equipment-usage-top');
+    if (!tbody) return;
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="3">暂无数据</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map(function (x) {
+      return '<tr><td>' + (x.equipment_name || '-') + '</td><td>' + (x.usage_count || 0) + '</td><td>' + (x.total_duration_minutes || 0) + '</td></tr>';
+    }).join('');
+  }
+
+  function renderSatisfactionSummary(satisfaction, activity) {
+    var tbody = document.getElementById('satisfaction-summary');
+    if (!tbody) return;
+    function n(v) { return v == null ? '-' : v; }
+    var rows = [
+      ['调查样本数', n(satisfaction.survey_count)],
+      ['综合满意度(均分)', n(satisfaction.avg_overall)],
+      ['服务评分(均分)', n(satisfaction.avg_service)],
+      ['设备评分(均分)', n(satisfaction.avg_equipment)],
+      ['环境评分(均分)', n(satisfaction.avg_environment)],
+      ['人员评分(均分)', n(satisfaction.avg_staff)],
+      ['活跃客户占比', (activity.total_customers ? Math.round((activity.active_customers || 0) * 100 / activity.total_customers) : 0) + '%']
+    ];
+    tbody.innerHTML = rows.map(function (r) { return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('');
   }
 
   function fillCustomerSelect(selId) {

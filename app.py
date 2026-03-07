@@ -9,6 +9,7 @@ import sqlite3
 import os
 import pandas as pd
 from datetime import datetime
+from datetime import timedelta
 
 # 项目根目录（app.py 所在目录）
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -626,6 +627,88 @@ def api_dashboard_stats():
         'pending_appointments': pending,
         'total_equipment': total_equipment,
         'available_equipment': available,
+    })
+
+
+@app.route('/api/dashboard/analytics', methods=['GET'])
+def api_dashboard_analytics():
+    conn = get_db()
+    c = conn.cursor()
+
+    # 最近 7 天预约趋势（包含 0 值日期）
+    today = datetime.now().date()
+    start_day = today - timedelta(days=6)
+    c.execute('''
+        SELECT appointment_date, COUNT(*) as n
+        FROM appointments
+        WHERE appointment_date BETWEEN ? AND ?
+        GROUP BY appointment_date
+        ORDER BY appointment_date
+    ''', (start_day.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')))
+    appt_map = {row['appointment_date']: row['n'] for row in c.fetchall()}
+    appointment_trend = []
+    for i in range(7):
+        day = start_day + timedelta(days=i)
+        key = day.strftime('%Y-%m-%d')
+        appointment_trend.append({'date': key, 'count': appt_map.get(key, 0)})
+
+    # 预约状态分布
+    c.execute('''
+        SELECT status, COUNT(*) as n
+        FROM appointments
+        GROUP BY status
+        ORDER BY n DESC
+    ''')
+    appointment_status = row_list(c.fetchall())
+
+    # 设备使用统计（总时长 + 次数）
+    c.execute('''
+        SELECT e.name as equipment_name,
+               COUNT(eu.id) as usage_count,
+               COALESCE(SUM(eu.duration_minutes), 0) as total_duration_minutes
+        FROM equipment e
+        LEFT JOIN equipment_usage eu ON e.id = eu.equipment_id
+        GROUP BY e.id, e.name
+        ORDER BY total_duration_minutes DESC, usage_count DESC
+        LIMIT 10
+    ''')
+    equipment_usage_top = row_list(c.fetchall())
+
+    # 满意度分析
+    c.execute('''
+        SELECT
+            ROUND(AVG(service_rating), 2) as avg_service,
+            ROUND(AVG(equipment_rating), 2) as avg_equipment,
+            ROUND(AVG(environment_rating), 2) as avg_environment,
+            ROUND(AVG(staff_rating), 2) as avg_staff,
+            ROUND(AVG(overall_rating), 2) as avg_overall,
+            COUNT(*) as survey_count
+        FROM satisfaction_surveys
+    ''')
+    satisfaction = dict(c.fetchone())
+
+    # 客户活跃度：有预约或有健康档案的客户
+    c.execute('''
+        SELECT COUNT(DISTINCT customer_id) as n FROM (
+            SELECT customer_id FROM appointments
+            UNION ALL
+            SELECT customer_id FROM health_records
+        )
+    ''')
+    active_customers = c.fetchone()['n']
+    c.execute('SELECT COUNT(*) as n FROM customers')
+    total_customers = c.fetchone()['n']
+
+    conn.close()
+    return jsonify({
+        'appointment_trend': appointment_trend,
+        'appointment_status': appointment_status,
+        'equipment_usage_top': equipment_usage_top,
+        'satisfaction': satisfaction,
+        'customer_activity': {
+            'active_customers': active_customers,
+            'total_customers': total_customers,
+        }
     })
 
 
