@@ -48,6 +48,14 @@
     .modal h3 { margin: 0 0 16px; }
     .modal-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
     textarea { min-height: 60px; resize: vertical; width: 100%; }
+    .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    .mini-table { width: 100%; font-size: 13px; }
+    .mini-table th, .mini-table td { padding: 8px 10px; }
+    .trend-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .trend-bar .date { width: 90px; color: #666; font-size: 12px; }
+    .trend-bar .bar { flex: 1; height: 12px; background: #ecf0f1; border-radius: 99px; overflow: hidden; }
+    .trend-bar .bar > span { display: block; height: 100%; background: #3498db; }
+    .trend-bar .value { width: 26px; text-align: right; color: #2c3e50; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -67,8 +75,26 @@
     <main class="main">
       <div id="page-home" class="page">
         <div class="card">
-          <h2>概览</h2>
+          <h2>核心概览</h2>
           <div class="stats" id="stats"></div>
+        </div>
+        <div class="analytics-grid">
+          <div class="card">
+            <h2>最近 7 天预约趋势</h2>
+            <div id="appointment-trend"></div>
+          </div>
+          <div class="card">
+            <h2>预约状态分布</h2>
+            <table class="mini-table"><thead><tr><th>状态</th><th>数量</th></tr></thead><tbody id="appointment-status"></tbody></table>
+          </div>
+          <div class="card">
+            <h2>设备使用统计（Top10）</h2>
+            <table class="mini-table"><thead><tr><th>设备</th><th>使用次数</th><th>总时长(分钟)</th></tr></thead><tbody id="equipment-usage-top"></tbody></table>
+          </div>
+          <div class="card">
+            <h2>客户满意度与活跃度</h2>
+            <table class="mini-table"><tbody id="satisfaction-summary"></tbody></table>
+          </div>
         </div>
       </div>
       <div id="page-customers" class="page hide">
