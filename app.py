@@ -652,6 +652,7 @@ def api_equipment_availability_summary():
 
 # ========== 服务项目与人员 ==========
 @app.route('/api/projects', methods=['GET'])
+@app.route('/api/service-projects', methods=['GET'])
 def api_projects_list():
     conn = get_db()
     c = conn.cursor()
@@ -662,6 +663,7 @@ def api_projects_list():
 
 
 @app.route('/api/projects/enabled', methods=['GET'])
+@app.route('/api/service-projects/enabled', methods=['GET'])
 def api_projects_enabled():
     conn = get_db()
     c = conn.cursor()
@@ -672,6 +674,7 @@ def api_projects_enabled():
 
 
 @app.route('/api/projects', methods=['POST'])
+@app.route('/api/service-projects', methods=['POST'])
 def api_projects_create():
     d = request.json or {}
     conn = get_db()
@@ -687,6 +690,7 @@ def api_projects_create():
 
 
 @app.route('/api/projects/<int:pid>', methods=['PUT'])
+@app.route('/api/service-projects/<int:pid>', methods=['PUT'])
 def api_projects_update(pid):
     d = request.json or {}
     conn = get_db()

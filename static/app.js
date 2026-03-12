@@ -120,8 +120,9 @@
     });
   }
 
-  function fillProjectSelect(selId, enabledOnly) {
-    get(enabledOnly ? '/api/projects/enabled' : '/api/projects').then(function (list) {
+  function fillProjectSelect(selId, enabledOnly, apiBasePath) {
+    var basePath = apiBasePath || '/api/projects';
+    get(enabledOnly ? (basePath + '/enabled') : basePath).then(function (list) {
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
@@ -269,7 +270,7 @@
 
   function loadHomeAppointmentsPage() {
     fillCustomerSelect('home-customer');
-    fillProjectSelect('home-project', true);
+    fillProjectSelect('home-project', true, '/api/service-projects');
     fillStaffSelect('home-staff');
     get('/api/home-appointments').then(function (list) {
       var tbody = document.getElementById('home-list');
