@@ -52,6 +52,49 @@ def ensure_columns(cursor, table_name, columns):
             cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN {col} {col_type}')
 
 
+def table_exists(cursor, table_name):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cursor.fetchone() is not None
+
+
+def load_projects_with_parallel_strategy(cursor, enabled_only=False, scene=None):
+    if scene != 'home' or not table_exists(cursor, 'service_projects'):
+        if enabled_only:
+            cursor.execute("SELECT * FROM therapy_projects WHERE status='enabled' ORDER BY name")
+        else:
+            cursor.execute('SELECT * FROM therapy_projects ORDER BY id DESC')
+        return row_list(cursor.fetchall())
+
+    therapy_sql = 'SELECT id, name, category, status, description, created_at FROM therapy_projects'
+    if enabled_only:
+        therapy_sql += " WHERE status='enabled'"
+    therapy_sql += ' ORDER BY id DESC'
+    cursor.execute(therapy_sql)
+    projects = row_list(cursor.fetchall())
+
+    service_sql = 'SELECT id, name, category, status, description, created_at FROM service_projects'
+    if enabled_only:
+        service_sql += " WHERE status='enabled'"
+    service_sql += ' ORDER BY id DESC'
+    cursor.execute(service_sql)
+    service_projects = row_list(cursor.fetchall())
+
+    by_name = {p['name']: p for p in projects}
+    for sp in service_projects:
+        if sp['name'] in by_name:
+            by_name[sp['name']].update({
+                'category': sp.get('category') or by_name[sp['name']].get('category'),
+                'status': sp.get('status') or by_name[sp['name']].get('status'),
+                'description': sp.get('description') or by_name[sp['name']].get('description'),
+            })
+        else:
+            projects.append(sp)
+            by_name[sp['name']] = sp
+
+    projects.sort(key=lambda x: x.get('id') or 0, reverse=True)
+    return projects
+
+
 def create_db_backup(backup_type='manual', notes=''):
     conn = get_db()
     c = conn.cursor()
@@ -271,6 +314,25 @@ def init_db():
     ''')
 
     c.execute('''
+        CREATE TABLE IF NOT EXISTS service_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT,
+            status TEXT DEFAULT 'enabled',
+            description TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    ensure_columns(c, 'service_projects', {
+        'name': 'TEXT',
+        'category': 'TEXT',
+        'status': "TEXT DEFAULT 'enabled'",
+        'description': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
+
+    c.execute('''
         CREATE TABLE IF NOT EXISTS staff (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -393,6 +455,23 @@ def init_db():
                 INSERT INTO therapy_projects (name, category, duration_minutes, need_equipment, equipment_type, price, status, description)
                 VALUES (?,?,?,?,?,?,?,?)
             ''', row)
+
+    service_project_seeds = [
+        ('高压氧仓', '上门', 'enabled', '高压氧仓服务项目'),
+        ('艾灸', '上门', 'enabled', '艾灸服务项目'),
+        ('读书室', '上门', 'enabled', '读书室服务项目'),
+        ('棋牌室', '上门', 'enabled', '棋牌室服务项目'),
+        ('听力测试', '上门', 'enabled', '听力测试服务项目'),
+        ('乒乓球', '上门', 'enabled', '乒乓球服务项目'),
+        ('台球', '上门', 'enabled', '台球服务项目'),
+    ]
+    for row in service_project_seeds:
+        c.execute('SELECT id FROM service_projects WHERE name=?', (row[0],))
+        if not c.fetchone():
+            c.execute(
+                'INSERT INTO service_projects (name, category, status, description) VALUES (?,?,?,?)',
+                row,
+            )
 
     c.execute("SELECT COUNT(*) FROM staff")
     if c.fetchone()[0] == 0:
@@ -653,22 +732,22 @@ def api_equipment_availability_summary():
 # ========== 服务项目与人员 ==========
 @app.route('/api/projects', methods=['GET'])
 def api_projects_list():
+    scene = request.args.get('scene')
     conn = get_db()
     c = conn.cursor()
-    c.execute('SELECT * FROM therapy_projects ORDER BY id DESC')
-    rows = c.fetchall()
+    rows = load_projects_with_parallel_strategy(c, enabled_only=False, scene=scene)
     conn.close()
-    return jsonify(row_list(rows))
+    return jsonify(rows)
 
 
 @app.route('/api/projects/enabled', methods=['GET'])
 def api_projects_enabled():
+    scene = request.args.get('scene')
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM therapy_projects WHERE status='enabled' ORDER BY name")
-    rows = c.fetchall()
+    rows = load_projects_with_parallel_strategy(c, enabled_only=True, scene=scene)
     conn.close()
-    return jsonify(row_list(rows))
+    return jsonify(rows)
 
 
 @app.route('/api/projects', methods=['POST'])
@@ -753,7 +832,6 @@ def api_health_assessments_list():
     conn = get_db()
     c = conn.cursor()
     sql = 'SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE 1=1'
-    params = []
     if customer_id:
         sql += ' AND h.customer_id=?'
         params.append(customer_id)
