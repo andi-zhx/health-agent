@@ -13,6 +13,7 @@ import shutil
 import logging
 from datetime import datetime
 from datetime import timedelta
+import re
 
 # 项目根目录（app.py 所在目录）
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +51,54 @@ def ensure_columns(cursor, table_name, columns):
     for col, col_type in columns.items():
         if col not in exists:
             cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN {col} {col_type}')
+
+
+def ensure_home_appointments_schema(cursor):
+    cursor.execute('PRAGMA table_info(home_appointments)')
+    cols = cursor.fetchall()
+    if not cols:
+        return
+    notnull_map = {row[1]: row[3] for row in cols}
+    if notnull_map.get('customer_id') != 1 and notnull_map.get('project_id') != 1:
+        return
+
+    cursor.execute('''
+        CREATE TABLE home_appointments_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER,
+            project_id INTEGER,
+            staff_id INTEGER,
+            appointment_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            location TEXT NOT NULL,
+            contact_person TEXT,
+            contact_phone TEXT,
+            home_time TEXT,
+            home_address TEXT,
+            service_project TEXT,
+            staff_name TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'scheduled',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id),
+            FOREIGN KEY (project_id) REFERENCES therapy_projects(id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        )
+    ''')
+    cursor.execute('''
+        INSERT INTO home_appointments_new (
+            id, customer_id, project_id, staff_id, appointment_date, start_time, end_time,
+            location, contact_person, contact_phone, notes, status, created_at, updated_at
+        )
+        SELECT
+            id, customer_id, project_id, staff_id, appointment_date, start_time, end_time,
+            location, contact_person, contact_phone, notes, status, created_at, updated_at
+        FROM home_appointments
+    ''')
+    cursor.execute('DROP TABLE home_appointments')
+    cursor.execute('ALTER TABLE home_appointments_new RENAME TO home_appointments')
 
 
 def create_db_backup(backup_type='manual', notes=''):
@@ -111,6 +160,87 @@ def decode_multi_value(value):
         return parsed if isinstance(parsed, list) else []
     except Exception:
         return []
+
+
+def normalize_home_time(home_time, appointment_date=None, start_time=None, end_time=None):
+    """标准化上门时间：优先解析 home_time，无法解析时回退旧字段。"""
+    appt_date = appointment_date
+    start = start_time
+    end = end_time
+    home_time_val = home_time
+
+    if isinstance(home_time, str) and home_time.strip():
+        text = home_time.strip()
+        home_time_val = text
+        m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*[-~至]\s*(\d{2}:\d{2})$', text)
+        if m:
+            appt_date, start, end = m.group(1), m.group(2), m.group(3)
+        else:
+            m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$', text)
+            if m:
+                appt_date, start = m.group(1), m.group(2)
+                end = end or (datetime.strptime(start, '%H:%M') + timedelta(hours=1)).strftime('%H:%M')
+
+    if appt_date and start and end and not home_time_val:
+        home_time_val = f'{appt_date} {start}-{end}'
+    return appt_date, start, end, home_time_val
+
+
+def parse_home_appointment_payload(payload, conn):
+    """统一兼容新旧字段，且新字段优先。"""
+    d = payload or {}
+    c = conn.cursor()
+    appointment_date, start_time, end_time, home_time = normalize_home_time(
+        d.get('home_time'), d.get('appointment_date'), d.get('start_time'), d.get('end_time')
+    )
+
+    customer_name = d.get('customer_name') or d.get('contact_person')
+    phone = d.get('phone') or d.get('contact_phone')
+    home_address = d.get('home_address') or d.get('location')
+    service_project = d.get('service_project')
+    staff_name = d.get('staff_name')
+
+    customer_id = d.get('customer_id')
+    if customer_id in ('', None):
+        customer_id = None
+    project_id = d.get('project_id')
+    staff_id = d.get('staff_id')
+
+    if not project_id and service_project:
+        c.execute('SELECT id FROM therapy_projects WHERE name=? LIMIT 1', (service_project,))
+        row = c.fetchone()
+        if row:
+            project_id = row['id']
+    if not staff_id and staff_name:
+        c.execute('SELECT id FROM staff WHERE name=? LIMIT 1', (staff_name,))
+        row = c.fetchone()
+        if row:
+            staff_id = row['id']
+    if customer_id is None and customer_name and phone:
+        c.execute('SELECT id FROM customers WHERE name=? AND phone=? LIMIT 1', (customer_name, phone))
+        row = c.fetchone()
+        if row:
+            customer_id = row['id']
+
+    return {
+        'customer_id': customer_id,
+        'project_id': project_id,
+        'staff_id': staff_id,
+        'appointment_date': appointment_date,
+        'start_time': start_time,
+        'end_time': end_time,
+        'location': home_address,
+        'contact_person': customer_name,
+        'contact_phone': phone,
+        'notes': d.get('notes'),
+        'status': d.get('status', 'scheduled'),
+        'customer_name': customer_name,
+        'phone': phone,
+        'home_time': home_time,
+        'home_address': home_address,
+        'service_project': service_project,
+        'staff_name': staff_name,
+    }
 
 
 def init_db():
@@ -285,8 +415,8 @@ def init_db():
     c.execute('''
         CREATE TABLE IF NOT EXISTS home_appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
-            project_id INTEGER NOT NULL,
+            customer_id INTEGER,
+            project_id INTEGER,
             staff_id INTEGER,
             appointment_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
@@ -294,6 +424,10 @@ def init_db():
             location TEXT NOT NULL,
             contact_person TEXT,
             contact_phone TEXT,
+            home_time TEXT,
+            home_address TEXT,
+            service_project TEXT,
+            staff_name TEXT,
             notes TEXT,
             status TEXT DEFAULT 'scheduled',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -303,6 +437,14 @@ def init_db():
             FOREIGN KEY (staff_id) REFERENCES staff(id)
         )
     ''')
+
+    ensure_home_appointments_schema(c)
+    ensure_columns(c, 'home_appointments', {
+        'home_time': 'TEXT',
+        'home_address': 'TEXT',
+        'service_project': 'TEXT',
+        'staff_name': 'TEXT',
+    })
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS db_backups (
@@ -982,9 +1124,21 @@ def api_home_appointments_list():
     conn = get_db()
     c = conn.cursor()
     c.execute('''
-        SELECT h.*, c.name as customer_name, p.name as project_name, s.name as staff_name
+        SELECT
+            h.*,
+            COALESCE(h.contact_person, c.name) as customer_name,
+            COALESCE(h.service_project, p.name) as service_project,
+            COALESCE(h.staff_name, s.name) as staff_name,
+            COALESCE(h.contact_phone, '') as phone,
+            COALESCE(h.home_address, h.location) as home_address,
+            CASE
+                WHEN h.home_time IS NOT NULL AND h.home_time <> '' THEN h.home_time
+                ELSE (h.appointment_date || ' ' || h.start_time || '-' || h.end_time)
+            END as home_time,
+            p.name as project_name,
+            s.name as staff_display_name
         FROM home_appointments h
-        JOIN customers c ON h.customer_id=c.id
+        LEFT JOIN customers c ON h.customer_id=c.id
         LEFT JOIN therapy_projects p ON h.project_id=p.id
         LEFT JOIN staff s ON h.staff_id=s.id
         ORDER BY h.appointment_date DESC, h.start_time DESC
@@ -996,24 +1150,45 @@ def api_home_appointments_list():
 
 @app.route('/api/home-appointments', methods=['POST'])
 def api_home_appointments_create():
-    d = request.json or {}
-    if not all(d.get(k) for k in ('customer_id', 'project_id', 'appointment_date', 'start_time', 'end_time', 'location')):
-        return jsonify({'error': '缺少必填字段'}), 400
     conn = get_db()
-    c = conn.cursor()
-    c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
-    if c.fetchone()['n'] > 0:
+    d = parse_home_appointment_payload(request.json, conn)
+    if not all(d.get(k) for k in ('customer_name', 'phone', 'appointment_date', 'start_time', 'end_time', 'home_address', 'service_project')):
         conn.close()
-        return jsonify({'error': '同一客户同一时段不能重复上门预约'}), 400
+        return jsonify({'error': '缺少必填字段'}), 400
+
+    c = conn.cursor()
+    if d.get('customer_id'):
+        c.execute(
+            f"SELECT COUNT(*) as n FROM home_appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+            (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time'))
+        )
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '同一客户同一时段不能重复上门预约'}), 400
+
     if d.get('staff_id'):
-        c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+        c.execute(
+            f"SELECT COUNT(*) as n FROM home_appointments WHERE staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+            (d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time'))
+        )
         if c.fetchone()['n'] > 0:
             conn.close()
             return jsonify({'error': '该服务人员该时段已有上门预约'}), 400
+
     c.execute('''
-        INSERT INTO home_appointments (customer_id, project_id, staff_id, appointment_date, start_time, end_time, location, contact_person, contact_phone, notes, status, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-    ''', (d.get('customer_id'), d.get('project_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled')))
+        INSERT INTO home_appointments (
+            customer_id, project_id, staff_id, appointment_date, start_time, end_time,
+            location, contact_person, contact_phone, home_time, home_address,
+            service_project, staff_name, notes, status, updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ''', (
+        d.get('customer_id'), d.get('project_id'), d.get('staff_id'),
+        d.get('appointment_date'), d.get('start_time'), d.get('end_time'),
+        d.get('home_address'), d.get('customer_name'), d.get('phone'),
+        d.get('home_time'), d.get('home_address'), d.get('service_project'),
+        d.get('staff_name'), d.get('notes'), d.get('status', 'scheduled')
+    ))
     conn.commit()
     rid = c.lastrowid
     conn.close()
@@ -1032,15 +1207,44 @@ def api_home_appointments_cancel(hid):
 
 @app.route('/api/home-appointments/<int:hid>', methods=['PUT'])
 def api_home_appointments_update(hid):
-    d = request.json or {}
     conn = get_db()
+    d = parse_home_appointment_payload(request.json, conn)
+    if not all(d.get(k) for k in ('customer_name', 'phone', 'appointment_date', 'start_time', 'end_time', 'home_address', 'service_project')):
+        conn.close()
+        return jsonify({'error': '缺少必填字段'}), 400
+
     c = conn.cursor()
+    if d.get('customer_id'):
+        c.execute(
+            f"SELECT COUNT(*) as n FROM home_appointments WHERE id<>? AND customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+            (hid, d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time'))
+        )
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '同一客户同一时段不能重复上门预约'}), 400
+
+    if d.get('staff_id'):
+        c.execute(
+            f"SELECT COUNT(*) as n FROM home_appointments WHERE id<>? AND staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+            (hid, d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time'))
+        )
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该服务人员该时段已有上门预约'}), 400
+
     c.execute('''
         UPDATE home_appointments
         SET customer_id=?, project_id=?, staff_id=?, appointment_date=?, start_time=?, end_time=?, location=?,
-            contact_person=?, contact_phone=?, notes=?, status=?, updated_at=CURRENT_TIMESTAMP
+            contact_person=?, contact_phone=?, home_time=?, home_address=?, service_project=?, staff_name=?,
+            notes=?, status=?, updated_at=CURRENT_TIMESTAMP
         WHERE id=?
-    ''', (d.get('customer_id'), d.get('project_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled'), hid))
+    ''', (
+        d.get('customer_id'), d.get('project_id'), d.get('staff_id'),
+        d.get('appointment_date'), d.get('start_time'), d.get('end_time'),
+        d.get('home_address'), d.get('customer_name'), d.get('phone'),
+        d.get('home_time'), d.get('home_address'), d.get('service_project'),
+        d.get('staff_name'), d.get('notes'), d.get('status', 'scheduled'), hid
+    ))
     conn.commit()
     conn.close()
     return jsonify({'message': '更新成功'})
