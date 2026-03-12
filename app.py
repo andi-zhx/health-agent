@@ -8,6 +8,9 @@ from flask import Flask, request, jsonify, send_from_directory
 import sqlite3
 import os
 import pandas as pd
+import json
+import shutil
+import logging
 from datetime import datetime
 from datetime import timedelta
 
@@ -17,17 +20,97 @@ app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
 
 DB_PATH = os.path.join(BASE_DIR, 'medical_system.db')
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'exports')
+BACKUP_FOLDER = os.path.join(BASE_DIR, 'backups')
+LOG_FOLDER = os.path.join(BASE_DIR, 'logs')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(BACKUP_FOLDER, exist_ok=True)
+os.makedirs(LOG_FOLDER, exist_ok=True)
+
+logging.basicConfig(
+    filename=os.path.join(LOG_FOLDER, 'app.log'),
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+)
 
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL;')
     return conn
 
 
 def row_list(rows):
     return [dict(r) for r in rows]
+
+
+def ensure_columns(cursor, table_name, columns):
+    cursor.execute(f'PRAGMA table_info({table_name})')
+    exists = {row[1] for row in cursor.fetchall()}
+    for col, col_type in columns.items():
+        if col not in exists:
+            cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN {col} {col_type}')
+
+
+def create_db_backup(backup_type='manual', notes=''):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS db_backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            backup_file TEXT,
+            backup_time TEXT,
+            backup_type TEXT,
+            status TEXT,
+            notes TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    fn = f'medical_system_{ts}.db'
+    fp = os.path.join(BACKUP_FOLDER, fn)
+    try:
+        if os.path.exists(DB_PATH):
+            shutil.copy2(DB_PATH, fp)
+            status = 'success'
+            msg = '备份成功'
+        else:
+            status = 'failed'
+            msg = '数据库文件不存在'
+        conn = get_db()
+        c = conn.cursor()
+        c.execute('INSERT INTO db_backups (backup_file, backup_time, backup_type, status, notes) VALUES (?,?,?,?,?)',
+                  (fn, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), backup_type, status, notes or msg))
+        conn.commit()
+        conn.close()
+        return {'filename': fn, 'status': status, 'message': msg}
+    except Exception as e:
+        logging.exception('backup failed')
+        return {'filename': fn, 'status': 'failed', 'message': str(e)}
+
+
+def overlap_condition():
+    return '(start_time < ?) AND (end_time > ?)'
+
+
+def parse_multi_value(value):
+    if value is None:
+        return json.dumps([], ensure_ascii=False)
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    return json.dumps([x.strip() for x in str(value).split(',') if x.strip()], ensure_ascii=False)
+
+
+def decode_multi_value(value):
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
 
 
 def init_db():
@@ -85,17 +168,26 @@ def init_db():
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id INTEGER NOT NULL,
-            equipment_id INTEGER NOT NULL,
+            equipment_id INTEGER,
+            project_id INTEGER,
+            staff_id INTEGER,
             appointment_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
             status TEXT DEFAULT 'scheduled',
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (customer_id) REFERENCES customers(id),
             FOREIGN KEY (equipment_id) REFERENCES equipment(id)
         )
     ''')
+
+    ensure_columns(c, 'appointments', {
+        'project_id': 'INTEGER',
+        'staff_id': 'INTEGER',
+        'updated_at': "TEXT DEFAULT CURRENT_TIMESTAMP",
+    })
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS equipment_usage (
@@ -103,15 +195,123 @@ def init_db():
             customer_id INTEGER NOT NULL,
             equipment_id INTEGER NOT NULL,
             appointment_id INTEGER,
+            project_id INTEGER,
+            staff_id INTEGER,
             usage_date TEXT NOT NULL,
             duration_minutes INTEGER,
             parameters TEXT,
             notes TEXT,
             operator TEXT,
+            usage_status TEXT,
+            usage_result TEXT,
+            customer_feedback TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (customer_id) REFERENCES customers(id),
             FOREIGN KEY (equipment_id) REFERENCES equipment(id),
             FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+        )
+    ''')
+
+    ensure_columns(c, 'equipment_usage', {
+        'project_id': 'INTEGER',
+        'staff_id': 'INTEGER',
+        'usage_status': 'TEXT',
+        'usage_result': 'TEXT',
+        'customer_feedback': 'TEXT',
+    })
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS health_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            assessment_date TEXT NOT NULL,
+            assessor TEXT,
+            age INTEGER,
+            height_cm REAL,
+            weight_kg REAL,
+            address TEXT,
+            past_medical_history TEXT,
+            family_history TEXT,
+            allergy_history TEXT,
+            allergy_details TEXT,
+            smoking_status TEXT,
+            smoking_years INTEGER,
+            cigarettes_per_day INTEGER,
+            drinking_status TEXT,
+            drinking_years INTEGER,
+            fatigue_last_month TEXT,
+            sleep_quality TEXT,
+            sleep_hours TEXT,
+            blood_pressure_test TEXT,
+            blood_lipid_test TEXT,
+            chronic_pain TEXT,
+            pain_details TEXT,
+            exercise_methods TEXT,
+            weekly_exercise_freq TEXT,
+            health_needs TEXT,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id)
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS therapy_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT,
+            duration_minutes INTEGER,
+            need_equipment INTEGER DEFAULT 0,
+            equipment_type TEXT,
+            price REAL,
+            status TEXT DEFAULT 'enabled',
+            description TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS staff (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role TEXT,
+            phone TEXT,
+            status TEXT DEFAULT 'available',
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS home_appointments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            project_id INTEGER NOT NULL,
+            staff_id INTEGER,
+            appointment_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            location TEXT NOT NULL,
+            contact_person TEXT,
+            contact_phone TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'scheduled',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id),
+            FOREIGN KEY (project_id) REFERENCES therapy_projects(id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS db_backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            backup_file TEXT,
+            backup_time TEXT,
+            backup_type TEXT,
+            status TEXT,
+            notes TEXT
         )
     ''')
 
@@ -175,6 +375,33 @@ def init_db():
                 'INSERT INTO equipment (name, type, model, location, status, description) VALUES (?,?,?,?,?,?)',
                 row
             )
+
+    c.execute("SELECT COUNT(*) FROM therapy_projects")
+    if c.fetchone()[0] == 0:
+        for row in [
+            ('红外理疗', '理疗', 60, 1, '理疗设备', 0, 'enabled', '红外热疗项目'),
+            ('超声理疗', '理疗', 45, 1, '理疗设备', 0, 'enabled', '超声理疗项目'),
+            ('电刺激治疗', '康复', 45, 1, '康复设备', 0, 'enabled', '电刺激治疗项目'),
+            ('磁疗', '理疗', 40, 1, '理疗设备', 0, 'enabled', '磁疗项目'),
+            ('牵引治疗', '康复', 60, 1, '康复设备', 0, 'enabled', '颈腰椎牵引'),
+            ('中药熏蒸', '中医', 50, 1, '中医设备', 0, 'enabled', '中药熏蒸项目'),
+            ('康复训练指导', '康复', 60, 0, None, 0, 'enabled', '康复训练与指导'),
+            ('中医养生咨询', '中医', 30, 0, None, 0, 'enabled', '中医养生咨询'),
+            ('上门康复护理', '上门', 60, 0, None, 0, 'enabled', '上门康复护理服务'),
+        ]:
+            c.execute('''
+                INSERT INTO therapy_projects (name, category, duration_minutes, need_equipment, equipment_type, price, status, description)
+                VALUES (?,?,?,?,?,?,?,?)
+            ''', row)
+
+    c.execute("SELECT COUNT(*) FROM staff")
+    if c.fetchone()[0] == 0:
+        for row in [
+            ('张理疗', '理疗师', '13800000001', 'available', '擅长理疗'),
+            ('李康复', '康复师', '13800000002', 'available', '擅长康复训练'),
+            ('王护理', '护士', '13800000003', 'available', '可上门服务'),
+        ]:
+            c.execute('INSERT INTO staff (name, role, phone, status, notes) VALUES (?,?,?,?,?)', row)
 
     conn.commit()
     conn.close()
@@ -423,27 +650,213 @@ def api_equipment_availability_summary():
     })
 
 
+# ========== 服务项目与人员 ==========
+@app.route('/api/projects', methods=['GET'])
+def api_projects_list():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT * FROM therapy_projects ORDER BY id DESC')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/projects/enabled', methods=['GET'])
+def api_projects_enabled():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM therapy_projects WHERE status='enabled' ORDER BY name")
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/projects', methods=['POST'])
+def api_projects_create():
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO therapy_projects (name, category, duration_minutes, need_equipment, equipment_type, price, status, description)
+        VALUES (?,?,?,?,?,?,?,?)
+    ''', (d.get('name'), d.get('category'), d.get('duration_minutes'), d.get('need_equipment', 0), d.get('equipment_type'), d.get('price'), d.get('status', 'enabled'), d.get('description')))
+    conn.commit()
+    pid = c.lastrowid
+    conn.close()
+    return jsonify({'id': pid, 'message': '项目创建成功'}), 201
+
+
+@app.route('/api/projects/<int:pid>', methods=['PUT'])
+def api_projects_update(pid):
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        UPDATE therapy_projects
+        SET name=?, category=?, duration_minutes=?, need_equipment=?, equipment_type=?, price=?, status=?, description=?
+        WHERE id=?
+    ''', (d.get('name'), d.get('category'), d.get('duration_minutes'), d.get('need_equipment', 0), d.get('equipment_type'), d.get('price'), d.get('status', 'enabled'), d.get('description'), pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '项目更新成功'})
+
+
+@app.route('/api/staff', methods=['GET'])
+def api_staff_list():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT * FROM staff ORDER BY id DESC')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/staff/available', methods=['GET'])
+def api_staff_available():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM staff WHERE status='available' ORDER BY name")
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/staff', methods=['POST'])
+def api_staff_create():
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('INSERT INTO staff (name, role, phone, status, notes) VALUES (?,?,?,?,?)',
+              (d.get('name'), d.get('role'), d.get('phone'), d.get('status', 'available'), d.get('notes')))
+    conn.commit()
+    sid = c.lastrowid
+    conn.close()
+    return jsonify({'id': sid, 'message': '服务人员创建成功'}), 201
+
+
+@app.route('/api/staff/<int:sid>', methods=['PUT'])
+def api_staff_update(sid):
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('UPDATE staff SET name=?, role=?, phone=?, status=?, notes=? WHERE id=?',
+              (d.get('name'), d.get('role'), d.get('phone'), d.get('status', 'available'), d.get('notes'), sid))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '服务人员更新成功'})
+
+
+# ========== 健康评估 ==========
+@app.route('/api/health-assessments', methods=['GET'])
+def api_health_assessments_list():
+    customer_id = request.args.get('customer_id', type=int)
+    conn = get_db()
+    c = conn.cursor()
+    sql = 'SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE 1=1'
+    params = []
+    if customer_id:
+        sql += ' AND h.customer_id=?'
+        params.append(customer_id)
+    sql += ' ORDER BY h.assessment_date DESC, h.id DESC'
+    c.execute(sql, params)
+    rows = row_list(c.fetchall())
+    conn.close()
+    for r in rows:
+        r['exercise_methods'] = decode_multi_value(r.get('exercise_methods'))
+        r['health_needs'] = decode_multi_value(r.get('health_needs'))
+    return jsonify(rows)
+
+
+@app.route('/api/health-assessments', methods=['POST'])
+def api_health_assessment_create():
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO health_assessments (customer_id, assessment_date, assessor, age, height_cm, weight_kg, address, past_medical_history, family_history,
+         allergy_history, allergy_details, smoking_status, smoking_years, cigarettes_per_day, drinking_status, drinking_years, fatigue_last_month,
+         sleep_quality, sleep_hours, blood_pressure_test, blood_lipid_test, chronic_pain, pain_details, exercise_methods, weekly_exercise_freq,
+         health_needs, notes)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ''', (
+        d.get('customer_id'), d.get('assessment_date'), d.get('assessor'), d.get('age'), d.get('height_cm'), d.get('weight_kg'),
+        d.get('address'), d.get('past_medical_history'), d.get('family_history'), d.get('allergy_history'), d.get('allergy_details'),
+        d.get('smoking_status'), d.get('smoking_years'), d.get('cigarettes_per_day'), d.get('drinking_status'), d.get('drinking_years'),
+        d.get('fatigue_last_month'), d.get('sleep_quality'), d.get('sleep_hours'), d.get('blood_pressure_test'), d.get('blood_lipid_test'),
+        d.get('chronic_pain'), d.get('pain_details'), parse_multi_value(d.get('exercise_methods')), d.get('weekly_exercise_freq'),
+        parse_multi_value(d.get('health_needs')), d.get('notes')
+    ))
+    conn.commit()
+    rid = c.lastrowid
+    conn.close()
+    return jsonify({'id': rid, 'message': '健康评估已添加'}), 201
+
+
+@app.route('/api/health-assessments/<int:hid>', methods=['GET'])
+def api_health_assessment_get(hid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE h.id=?', (hid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': '记录不存在'}), 404
+    data = dict(row)
+    data['exercise_methods'] = decode_multi_value(data.get('exercise_methods'))
+    data['health_needs'] = decode_multi_value(data.get('health_needs'))
+    return jsonify(data)
+
+
+@app.route('/api/health-assessments/<int:hid>', methods=['PUT'])
+def api_health_assessment_update(hid):
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        UPDATE health_assessments
+        SET customer_id=?, assessment_date=?, assessor=?, age=?, height_cm=?, weight_kg=?, address=?, past_medical_history=?, family_history=?,
+            allergy_history=?, allergy_details=?, smoking_status=?, smoking_years=?, cigarettes_per_day=?, drinking_status=?, drinking_years=?,
+            fatigue_last_month=?, sleep_quality=?, sleep_hours=?, blood_pressure_test=?, blood_lipid_test=?, chronic_pain=?, pain_details=?,
+            exercise_methods=?, weekly_exercise_freq=?, health_needs=?, notes=?
+        WHERE id=?
+    ''', (
+        d.get('customer_id'), d.get('assessment_date'), d.get('assessor'), d.get('age'), d.get('height_cm'), d.get('weight_kg'),
+        d.get('address'), d.get('past_medical_history'), d.get('family_history'), d.get('allergy_history'), d.get('allergy_details'),
+        d.get('smoking_status'), d.get('smoking_years'), d.get('cigarettes_per_day'), d.get('drinking_status'), d.get('drinking_years'),
+        d.get('fatigue_last_month'), d.get('sleep_quality'), d.get('sleep_hours'), d.get('blood_pressure_test'), d.get('blood_lipid_test'),
+        d.get('chronic_pain'), d.get('pain_details'), parse_multi_value(d.get('exercise_methods')), d.get('weekly_exercise_freq'),
+        parse_multi_value(d.get('health_needs')), d.get('notes'), hid
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '健康评估更新成功'})
+
+
+@app.route('/api/health-assessments/<int:hid>', methods=['DELETE'])
+def api_health_assessment_delete(hid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('DELETE FROM health_assessments WHERE id=?', (hid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '已删除'})
+
+
 # ========== 预约 ==========
 @app.route('/api/appointments', methods=['GET'])
 def api_appointments_list():
-    date_from = request.args.get('date_from')
-    date_to = request.args.get('date_to')
-    status = request.args.get('status')
     conn = get_db()
     c = conn.cursor()
-    sql = 'SELECT a.*, c.name as customer_name, c.phone as customer_phone, e.name as equipment_name FROM appointments a JOIN customers c ON a.customer_id=c.id JOIN equipment e ON a.equipment_id=e.id WHERE 1=1'
-    params = []
-    if date_from:
-        sql += ' AND a.appointment_date>=?'
-        params.append(date_from)
-    if date_to:
-        sql += ' AND a.appointment_date<=?'
-        params.append(date_to)
-    if status:
-        sql += ' AND a.status=?'
-        params.append(status)
-    sql += ' ORDER BY a.appointment_date DESC, a.start_time DESC'
-    c.execute(sql, params)
+    c.execute('''
+        SELECT a.*, c.name as customer_name, c.phone as customer_phone, e.name as equipment_name,
+               p.name as project_name, s.name as staff_name
+        FROM appointments a
+        JOIN customers c ON a.customer_id=c.id
+        LEFT JOIN equipment e ON a.equipment_id=e.id
+        LEFT JOIN therapy_projects p ON a.project_id=p.id
+        LEFT JOIN staff s ON a.staff_id=s.id
+        ORDER BY a.appointment_date DESC, a.start_time DESC
+    ''')
     rows = c.fetchall()
     conn.close()
     return jsonify(row_list(rows))
@@ -452,49 +865,185 @@ def api_appointments_list():
 @app.route('/api/appointments', methods=['POST'])
 def api_appointment_create():
     d = request.json or {}
+    if not all(d.get(k) for k in ('customer_id', 'project_id', 'appointment_date', 'start_time', 'end_time')):
+        return jsonify({'error': '缺少必填字段'}), 400
     conn = get_db()
     c = conn.cursor()
-    c.execute('''
-        SELECT COUNT(*) FROM appointments WHERE equipment_id=? AND appointment_date=? AND status='scheduled'
-        AND ((start_time<=? AND end_time>?) OR (start_time<? AND end_time>=?) OR (start_time>=? AND end_time<=?))
-    ''', (
-        d.get('equipment_id'), d.get('appointment_date'),
-        d.get('start_time'), d.get('start_time'), d.get('end_time'), d.get('end_time'),
-        d.get('start_time'), d.get('end_time')
-    ))
-    if c.fetchone()[0] > 0:
+    c.execute('SELECT * FROM therapy_projects WHERE id=?', (d.get('project_id'),))
+    project = c.fetchone()
+    if not project:
         conn.close()
-        return jsonify({'error': '该时段设备已被预约'}), 400
+        return jsonify({'error': '项目不存在'}), 400
+    if project['need_equipment'] and not d.get('equipment_id'):
+        conn.close()
+        return jsonify({'error': '该项目需要设备'}), 400
+
+    c.execute(f"SELECT COUNT(*) as n FROM appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+              (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+    if c.fetchone()['n'] > 0:
+        conn.close()
+        return jsonify({'error': '同一客户同一时段不能重复预约'}), 400
+
+    if d.get('equipment_id'):
+        c.execute(f"SELECT COUNT(*) as n FROM appointments WHERE equipment_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+                  (d.get('equipment_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该时段设备已被预约'}), 400
+
+    if d.get('staff_id'):
+        c.execute(f"SELECT COUNT(*) as n FROM appointments WHERE staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+                  (d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该服务人员该时段已被预约'}), 400
+
     c.execute('''
-        INSERT INTO appointments (customer_id, equipment_id, appointment_date, start_time, end_time, notes)
-        VALUES (?,?,?,?,?,?)
-    ''', (d.get('customer_id'), d.get('equipment_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('notes')))
+        INSERT INTO appointments (customer_id, project_id, equipment_id, staff_id, appointment_date, start_time, end_time, status, notes, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ''', (d.get('customer_id'), d.get('project_id'), d.get('equipment_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('status', 'scheduled'), d.get('notes')))
     conn.commit()
-    id = c.lastrowid
+    rid = c.lastrowid
     conn.close()
-    return jsonify({'id': id, 'message': '预约成功'}), 201
+    return jsonify({'id': rid, 'message': '预约成功'}), 201
 
 
-@app.route('/api/appointments/<int:aid>', methods=['PUT'])
-def api_appointment_update(aid):
-    d = request.json or {}
+@app.route('/api/appointments/free-slots', methods=['GET'])
+def api_appointments_free_slots():
+    date = request.args.get('date')
+    if not date:
+        return jsonify({'error': '缺少 date'}), 400
+    slots = [('09:00', '10:00'), ('10:00', '11:00'), ('11:00', '12:00'), ('14:00', '15:00'), ('15:00', '16:00'), ('16:00', '17:00')]
     conn = get_db()
     c = conn.cursor()
-    c.execute('UPDATE appointments SET customer_id=?, equipment_id=?, appointment_date=?, start_time=?, end_time=?, status=?, notes=? WHERE id=?',
-              (d.get('customer_id'), d.get('equipment_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('status'), d.get('notes'), aid))
-    conn.commit()
+    c.execute("SELECT COUNT(*) as n FROM equipment WHERE status='available'")
+    total_eq = c.fetchone()['n']
+    c.execute("SELECT COUNT(*) as n FROM staff WHERE status='available'")
+    total_staff = c.fetchone()['n']
+    result = []
+    for st, et in slots:
+        c.execute(f"SELECT COUNT(*) as n FROM appointments WHERE appointment_date=? AND status='scheduled' AND {overlap_condition()} AND equipment_id IS NOT NULL", (date, et, st))
+        used_eq = c.fetchone()['n']
+        c.execute(f"SELECT COUNT(DISTINCT staff_id) as n FROM appointments WHERE appointment_date=? AND status='scheduled' AND {overlap_condition()} AND staff_id IS NOT NULL", (date, et, st))
+        used_staff = c.fetchone()['n']
+        result.append({'start_time': st, 'end_time': et, 'remaining_equipment': max(total_eq - used_eq, 0), 'available_staff_count': max(total_staff - used_staff, 0)})
     conn.close()
-    return jsonify({'message': '更新成功'})
+    return jsonify(result)
+
+
+@app.route('/api/appointments/available-options', methods=['GET'])
+def api_appointments_available_options():
+    date = request.args.get('date')
+    start_time = request.args.get('start_time')
+    end_time = request.args.get('end_time')
+    project_id = request.args.get('project_id', type=int)
+    if not all([date, start_time, end_time, project_id]):
+        return jsonify({'error': '缺少必要参数'}), 400
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT * FROM therapy_projects WHERE id=?', (project_id,))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '项目不存在'}), 404
+    c.execute(f"SELECT equipment_id FROM appointments WHERE appointment_date=? AND status='scheduled' AND {overlap_condition()} AND equipment_id IS NOT NULL", (date, end_time, start_time))
+    busy_eq = [r['equipment_id'] for r in c.fetchall()]
+    if busy_eq:
+        ph = ','.join('?' * len(busy_eq))
+        c.execute(f"SELECT * FROM equipment WHERE status='available' AND id NOT IN ({ph}) ORDER BY name", busy_eq)
+    else:
+        c.execute("SELECT * FROM equipment WHERE status='available' ORDER BY name")
+    avail_equipment = row_list(c.fetchall())
+    c.execute(f"SELECT staff_id FROM appointments WHERE appointment_date=? AND status='scheduled' AND {overlap_condition()} AND staff_id IS NOT NULL", (date, end_time, start_time))
+    busy_staff = [r['staff_id'] for r in c.fetchall()]
+    if busy_staff:
+        ph = ','.join('?' * len(busy_staff))
+        c.execute(f"SELECT * FROM staff WHERE status='available' AND id NOT IN ({ph}) ORDER BY name", busy_staff)
+    else:
+        c.execute("SELECT * FROM staff WHERE status='available' ORDER BY name")
+    avail_staff = row_list(c.fetchall())
+    conn.close()
+    return jsonify({'project': dict(project), 'available_equipment': avail_equipment, 'available_staff': avail_staff})
 
 
 @app.route('/api/appointments/<int:aid>/cancel', methods=['POST'])
 def api_appointment_cancel(aid):
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE appointments SET status='cancelled' WHERE id=?", (aid,))
+    c.execute("UPDATE appointments SET status='cancelled', updated_at=CURRENT_TIMESTAMP WHERE id=?", (aid,))
     conn.commit()
     conn.close()
     return jsonify({'message': '已取消'})
+
+
+# ========== 上门预约 ==========
+@app.route('/api/home-appointments', methods=['GET'])
+def api_home_appointments_list():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        SELECT h.*, c.name as customer_name, p.name as project_name, s.name as staff_name
+        FROM home_appointments h
+        JOIN customers c ON h.customer_id=c.id
+        LEFT JOIN therapy_projects p ON h.project_id=p.id
+        LEFT JOIN staff s ON h.staff_id=s.id
+        ORDER BY h.appointment_date DESC, h.start_time DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/home-appointments', methods=['POST'])
+def api_home_appointments_create():
+    d = request.json or {}
+    if not all(d.get(k) for k in ('customer_id', 'project_id', 'appointment_date', 'start_time', 'end_time', 'location')):
+        return jsonify({'error': '缺少必填字段'}), 400
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+    if c.fetchone()['n'] > 0:
+        conn.close()
+        return jsonify({'error': '同一客户同一时段不能重复上门预约'}), 400
+    if d.get('staff_id'):
+        c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该服务人员该时段已有上门预约'}), 400
+    c.execute('''
+        INSERT INTO home_appointments (customer_id, project_id, staff_id, appointment_date, start_time, end_time, location, contact_person, contact_phone, notes, status, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ''', (d.get('customer_id'), d.get('project_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled')))
+    conn.commit()
+    rid = c.lastrowid
+    conn.close()
+    return jsonify({'id': rid, 'message': '上门预约成功'}), 201
+
+
+@app.route('/api/home-appointments/<int:hid>/cancel', methods=['POST'])
+def api_home_appointments_cancel(hid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE home_appointments SET status='cancelled', updated_at=CURRENT_TIMESTAMP WHERE id=?", (hid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '已取消'})
+
+
+@app.route('/api/home-appointments/<int:hid>', methods=['PUT'])
+def api_home_appointments_update(hid):
+    d = request.json or {}
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        UPDATE home_appointments
+        SET customer_id=?, project_id=?, staff_id=?, appointment_date=?, start_time=?, end_time=?, location=?,
+            contact_person=?, contact_phone=?, notes=?, status=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    ''', (d.get('customer_id'), d.get('project_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled'), hid))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '更新成功'})
 
 
 # ========== 设备使用 ==========
@@ -502,7 +1051,15 @@ def api_appointment_cancel(aid):
 def api_equipment_usage_list():
     conn = get_db()
     c = conn.cursor()
-    c.execute('SELECT eu.*, c.name as customer_name, e.name as equipment_name FROM equipment_usage eu JOIN customers c ON eu.customer_id=c.id JOIN equipment e ON eu.equipment_id=e.id ORDER BY eu.usage_date DESC')
+    c.execute('''
+        SELECT eu.*, c.name as customer_name, e.name as equipment_name, p.name as project_name, s.name as staff_name
+        FROM equipment_usage eu
+        JOIN customers c ON eu.customer_id=c.id
+        JOIN equipment e ON eu.equipment_id=e.id
+        LEFT JOIN therapy_projects p ON eu.project_id=p.id
+        LEFT JOIN staff s ON eu.staff_id=s.id
+        ORDER BY eu.usage_date DESC
+    ''')
     rows = c.fetchall()
     conn.close()
     return jsonify(row_list(rows))
@@ -514,13 +1071,69 @@ def api_equipment_usage_create():
     conn = get_db()
     c = conn.cursor()
     c.execute('''
-        INSERT INTO equipment_usage (customer_id, equipment_id, appointment_id, usage_date, duration_minutes, parameters, notes, operator)
-        VALUES (?,?,?,?,?,?,?,?)
-    ''', (d.get('customer_id'), d.get('equipment_id'), d.get('appointment_id'), d.get('usage_date'), d.get('duration_minutes'), d.get('parameters'), d.get('notes'), d.get('operator')))
+        INSERT INTO equipment_usage (customer_id, equipment_id, appointment_id, project_id, staff_id, usage_date, duration_minutes, parameters, notes, operator, usage_status, usage_result, customer_feedback)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ''', (d.get('customer_id'), d.get('equipment_id'), d.get('appointment_id'), d.get('project_id'), d.get('staff_id'), d.get('usage_date'), d.get('duration_minutes'), d.get('parameters'), d.get('notes'), d.get('operator'), d.get('usage_status'), d.get('usage_result'), d.get('customer_feedback')))
     conn.commit()
     id = c.lastrowid
     conn.close()
     return jsonify({'id': id, 'message': '记录已添加'}), 201
+
+
+@app.route('/api/equipment-usage/summary', methods=['GET'])
+def api_equipment_usage_summary():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        SELECT e.id as equipment_id,
+               e.name as equipment_name,
+               COUNT(eu.id) as usage_count,
+               COALESCE(SUM(eu.duration_minutes), 0) as total_duration_minutes,
+               COUNT(DISTINCT eu.customer_id) as customer_count
+        FROM equipment e
+        LEFT JOIN equipment_usage eu ON e.id = eu.equipment_id
+        GROUP BY e.id, e.name
+        ORDER BY usage_count DESC, total_duration_minutes DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/equipment-usage/by-project', methods=['GET'])
+def api_equipment_usage_by_project():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        SELECT p.id as project_id, p.name as project_name,
+               COUNT(eu.id) as usage_count,
+               COALESCE(SUM(eu.duration_minutes), 0) as total_duration_minutes
+        FROM therapy_projects p
+        LEFT JOIN equipment_usage eu ON p.id = eu.project_id
+        GROUP BY p.id, p.name
+        ORDER BY usage_count DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
+
+
+@app.route('/api/equipment-usage/by-customer', methods=['GET'])
+def api_equipment_usage_by_customer():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        SELECT c.id as customer_id, c.name as customer_name,
+               COUNT(eu.id) as usage_count,
+               COALESCE(SUM(eu.duration_minutes), 0) as total_duration_minutes
+        FROM customers c
+        LEFT JOIN equipment_usage eu ON c.id = eu.customer_id
+        GROUP BY c.id, c.name
+        ORDER BY usage_count DESC, total_duration_minutes DESC
+    ''')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
 
 
 # ========== 满意度 ==========
@@ -746,6 +1359,23 @@ def api_export_usage():
     fp = os.path.join(UPLOAD_FOLDER, fn)
     df.to_excel(fp, index=False, engine='openpyxl')
     return jsonify({'filename': fn, 'download_url': '/api/download/' + fn})
+
+
+@app.route('/api/system/backup', methods=['POST'])
+def api_system_backup():
+    result = create_db_backup(backup_type='manual')
+    code = 200 if result.get('status') == 'success' else 500
+    return jsonify(result), code
+
+
+@app.route('/api/system/backups', methods=['GET'])
+def api_system_backups():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT * FROM db_backups ORDER BY backup_time DESC, id DESC LIMIT 200')
+    rows = c.fetchall()
+    conn.close()
+    return jsonify(row_list(rows))
 
 
 @app.route('/api/download/<filename>', methods=['GET'])

@@ -9,6 +9,7 @@ import os
 import sys
 import traceback
 import subprocess
+from datetime import datetime
 
 # 先切换到本脚本所在目录，保证数据库和 static 路径正确
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +18,13 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 ERROR_LOG = os.path.join(SCRIPT_DIR, 'error_log.txt')
+START_LOG = os.path.join(SCRIPT_DIR, 'logs', 'startup.log')
+
+
+def write_start_log(msg):
+    os.makedirs(os.path.join(SCRIPT_DIR, 'logs'), exist_ok=True)
+    with open(START_LOG, 'a', encoding='utf-8') as f:
+        f.write('[%s] %s\n' % (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), msg))
 
 
 def install_requirements_auto():
@@ -69,6 +77,14 @@ def show_error(title, msg):
 
 
 def main():
+    if not sys.executable:
+        show_error('医疗系统启动失败', '未检测到 Python 解释器。')
+        sys.exit(1)
+
+    os.makedirs(os.path.join(SCRIPT_DIR, 'exports'), exist_ok=True)
+    os.makedirs(os.path.join(SCRIPT_DIR, 'backups'), exist_ok=True)
+    write_start_log('启动流程开始。')
+
     # 延迟导入，便于在 import 失败时也能弹窗报错
     try:
         from app import app, init_db
@@ -109,6 +125,12 @@ def main():
 
     try:
         init_db()
+        try:
+            from app import create_db_backup
+            create_db_backup('startup', notes='启动时自动备份')
+            write_start_log('启动时自动备份成功。')
+        except Exception:
+            write_start_log('启动时自动备份失败。')
     except Exception as e:
         show_error('医疗系统启动失败', '数据库初始化失败：%s\n\n%s' % (e, traceback.format_exc()))
         sys.exit(1)
