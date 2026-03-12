@@ -288,6 +288,12 @@ def init_db():
             customer_id INTEGER NOT NULL,
             project_id INTEGER NOT NULL,
             staff_id INTEGER,
+            customer_name TEXT,
+            phone TEXT,
+            home_time TEXT,
+            home_address TEXT,
+            service_project TEXT,
+            staff_name TEXT,
             appointment_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
@@ -303,6 +309,15 @@ def init_db():
             FOREIGN KEY (staff_id) REFERENCES staff(id)
         )
     ''')
+
+    ensure_columns(c, 'home_appointments', {
+        'customer_name': 'TEXT',
+        'phone': 'TEXT',
+        'home_time': 'TEXT',
+        'home_address': 'TEXT',
+        'service_project': 'TEXT',
+        'staff_name': 'TEXT',
+    })
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS db_backups (
@@ -982,9 +997,16 @@ def api_home_appointments_list():
     conn = get_db()
     c = conn.cursor()
     c.execute('''
-        SELECT h.*, c.name as customer_name, p.name as project_name, s.name as staff_name
+        SELECT
+            h.*,
+            COALESCE(h.customer_name, c.name) AS customer_name,
+            COALESCE(h.service_project, p.name) AS project_name,
+            COALESCE(h.staff_name, s.name) AS staff_name,
+            COALESCE(h.phone, c.phone) AS phone,
+            COALESCE(h.home_address, h.location) AS home_address,
+            COALESCE(h.home_time, h.start_time || '-' || h.end_time) AS home_time
         FROM home_appointments h
-        JOIN customers c ON h.customer_id=c.id
+        LEFT JOIN customers c ON h.customer_id=c.id
         LEFT JOIN therapy_projects p ON h.project_id=p.id
         LEFT JOIN staff s ON h.staff_id=s.id
         ORDER BY h.appointment_date DESC, h.start_time DESC
@@ -1001,6 +1023,27 @@ def api_home_appointments_create():
         return jsonify({'error': '缺少必填字段'}), 400
     conn = get_db()
     c = conn.cursor()
+
+    c.execute('SELECT id, name, phone FROM customers WHERE id=?', (d.get('customer_id'),))
+    customer = c.fetchone()
+    if not customer:
+        conn.close()
+        return jsonify({'error': '客户不存在'}), 404
+
+    c.execute('SELECT id, name FROM therapy_projects WHERE id=?', (d.get('project_id'),))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '上门项目不存在'}), 404
+
+    staff = None
+    if d.get('staff_id'):
+        c.execute('SELECT id, name FROM staff WHERE id=?', (d.get('staff_id'),))
+        staff = c.fetchone()
+        if not staff:
+            conn.close()
+            return jsonify({'error': '服务人员不存在'}), 404
+
     c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
     if c.fetchone()['n'] > 0:
         conn.close()
@@ -1010,10 +1053,22 @@ def api_home_appointments_create():
         if c.fetchone()['n'] > 0:
             conn.close()
             return jsonify({'error': '该服务人员该时段已有上门预约'}), 400
+
+    home_address = d.get('home_address') or d.get('location')
+    home_time = d.get('home_time') or f"{d.get('start_time')}-{d.get('end_time')}"
+
     c.execute('''
-        INSERT INTO home_appointments (customer_id, project_id, staff_id, appointment_date, start_time, end_time, location, contact_person, contact_phone, notes, status, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-    ''', (d.get('customer_id'), d.get('project_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled')))
+        INSERT INTO home_appointments (
+            customer_id, project_id, staff_id,
+            customer_name, phone, home_time, home_address, service_project, staff_name,
+            appointment_date, start_time, end_time, location, contact_person, contact_phone, notes, status, updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ''', (
+        d.get('customer_id'), d.get('project_id'), d.get('staff_id'),
+        customer['name'], customer['phone'], home_time, home_address, project['name'], staff['name'] if staff else None,
+        d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled')
+    ))
     conn.commit()
     rid = c.lastrowid
     conn.close()
@@ -1035,12 +1090,48 @@ def api_home_appointments_update(hid):
     d = request.json or {}
     conn = get_db()
     c = conn.cursor()
+
+    c.execute('SELECT id FROM home_appointments WHERE id=?', (hid,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': '上门预约不存在'}), 404
+
+    c.execute('SELECT id, name, phone FROM customers WHERE id=?', (d.get('customer_id'),))
+    customer = c.fetchone()
+    if not customer:
+        conn.close()
+        return jsonify({'error': '客户不存在'}), 404
+
+    c.execute('SELECT id, name FROM therapy_projects WHERE id=?', (d.get('project_id'),))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '上门项目不存在'}), 404
+
+    staff = None
+    if d.get('staff_id'):
+        c.execute('SELECT id, name FROM staff WHERE id=?', (d.get('staff_id'),))
+        staff = c.fetchone()
+        if not staff:
+            conn.close()
+            return jsonify({'error': '服务人员不存在'}), 404
+
+    home_address = d.get('home_address') or d.get('location')
+    home_time = d.get('home_time') or f"{d.get('start_time')}-{d.get('end_time')}"
+
     c.execute('''
         UPDATE home_appointments
-        SET customer_id=?, project_id=?, staff_id=?, appointment_date=?, start_time=?, end_time=?, location=?,
+        SET customer_id=?, project_id=?, staff_id=?,
+            customer_name=?, phone=?, home_time=?, home_address=?, service_project=?, staff_name=?,
+            appointment_date=?, start_time=?, end_time=?, location=?,
             contact_person=?, contact_phone=?, notes=?, status=?, updated_at=CURRENT_TIMESTAMP
         WHERE id=?
-    ''', (d.get('customer_id'), d.get('project_id'), d.get('staff_id'), d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled'), hid))
+    ''', (
+        d.get('customer_id'), d.get('project_id'), d.get('staff_id'),
+        customer['name'], customer['phone'], home_time, home_address, project['name'], staff['name'] if staff else None,
+        d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'),
+        d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled'), hid
+    ))
     conn.commit()
     conn.close()
     return jsonify({'message': '更新成功'})
