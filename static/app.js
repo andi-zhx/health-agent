@@ -187,44 +187,13 @@
     document.getElementById('modal-customer').classList.remove('hide');
   }
 
-  function getCheckedValues(selector) {
-    return Array.prototype.slice.call(document.querySelectorAll(selector + ':checked')).map(function (item) {
-      return item.value;
-    });
-  }
-
-  function setCheckedValues(selector, values) {
-    var arr = Array.isArray(values) ? values : [];
-    document.querySelectorAll(selector).forEach(function (item) {
-      item.checked = arr.indexOf(item.value) !== -1;
-    });
-  }
-
-  function resetHealthForm() {
-    document.getElementById('health-id').value = '';
-    document.getElementById('health-customer').value = '';
-    document.getElementById('health-height').value = '';
-    document.getElementById('health-weight').value = '';
-    document.getElementById('health-bp').value = '';
-    document.getElementById('health-symptoms').value = '';
-    document.getElementById('health-diagnosis').value = '';
-    document.getElementById('health-notes').value = '';
-    setCheckedValues('input[name="health-exercise-method"]', []);
-    setCheckedValues('input[name="health-need"]', []);
-  }
-
-  function fillHealthForm(data) {
-    document.getElementById('health-id').value = data.id || '';
-    document.getElementById('health-customer').value = data.customer_id || '';
-    document.getElementById('health-date').value = (data.assessment_date || '').slice(0, 10);
-    document.getElementById('health-height').value = data.height_cm || '';
-    document.getElementById('health-weight').value = data.weight_kg || '';
-    document.getElementById('health-bp').value = data.sleep_quality || '';
-    document.getElementById('health-symptoms').value = data.past_medical_history || '';
-    document.getElementById('health-diagnosis').value = data.family_history || '';
-    document.getElementById('health-notes').value = data.notes || '';
-    setCheckedValues('input[name="health-exercise-method"]', data.exercise_methods || []);
-    setCheckedValues('input[name="health-need"]', data.health_needs || []);
+  function healthValue() {
+    var ids = Array.prototype.slice.call(arguments);
+    for (var i = 0; i < ids.length; i += 1) {
+      var el = document.getElementById(ids[i]);
+      if (el) return el.value || null;
+    }
+    return null;
   }
 
   function loadHealthPage() {
@@ -232,7 +201,7 @@
     get('/api/health-assessments').then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = (list || []).map(function (h) {
-        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td><td><button class="btn btn-small btn-primary" data-health-edit="' + h.id + '">编辑</button></td></tr>';
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
       }).join('');
       tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -382,12 +351,46 @@
       assessment_date: document.getElementById('health-date').value,
       height_cm: document.getElementById('health-height').value || null,
       weight_kg: document.getElementById('health-weight').value || null,
-      sleep_quality: document.getElementById('health-bp').value || null,
+      allergy_history: document.getElementById('health-allergy-history').value || null,
+      smoking_status: document.getElementById('health-smoking-status').value || null,
+      drinking_status: document.getElementById('health-drinking-status').value || null,
+      fatigue_last_month: document.getElementById('health-fatigue-last-month').value || null,
+      sleep_quality: document.getElementById('health-sleep-quality').value || null,
+      sleep_hours: document.getElementById('health-sleep-hours').value || null,
+      blood_pressure_test: document.getElementById('health-blood-pressure-test').value || null,
+      blood_lipid_test: document.getElementById('health-blood-lipid-test').value || null,
+      chronic_pain: document.getElementById('health-chronic-pain').value || null,
+      weekly_exercise_freq: document.getElementById('health-weekly-exercise-freq').value || null,
       past_medical_history: document.getElementById('health-symptoms').value || null,
       family_history: document.getElementById('health-diagnosis').value || null,
       exercise_methods: getCheckedValues('input[name="health-exercise-method"]'),
       health_needs: getCheckedValues('input[name="health-need"]'),
       notes: document.getElementById('health-notes').value || null
+      assessor: healthValue('ha-assessor'),
+      age: healthValue('ha-age'),
+      height_cm: healthValue('ha-height-cm', 'health-height'),
+      weight_kg: healthValue('ha-weight-kg', 'health-weight'),
+      address: healthValue('ha-address'),
+      past_medical_history: healthValue('ha-past-medical-history', 'health-symptoms'),
+      family_history: healthValue('ha-family-history', 'health-diagnosis'),
+      allergy_history: healthValue('ha-allergy-history'),
+      allergy_details: healthValue('ha-allergy-details'),
+      smoking_status: healthValue('ha-smoking-status'),
+      smoking_years: healthValue('ha-smoking-years'),
+      cigarettes_per_day: healthValue('ha-cigarettes-per-day'),
+      drinking_status: healthValue('ha-drinking-status'),
+      drinking_years: healthValue('ha-drinking-years'),
+      fatigue_last_month: healthValue('ha-fatigue-last-month'),
+      sleep_quality: healthValue('ha-sleep-quality', 'health-bp'),
+      sleep_hours: healthValue('ha-sleep-hours'),
+      blood_pressure_test: healthValue('ha-blood-pressure-test'),
+      blood_lipid_test: healthValue('ha-blood-lipid-test'),
+      chronic_pain: healthValue('ha-chronic-pain'),
+      pain_details: healthValue('ha-pain-details'),
+      exercise_methods: healthValue('ha-exercise-methods'),
+      weekly_exercise_freq: healthValue('ha-weekly-exercise-freq'),
+      health_needs: healthValue('ha-health-needs'),
+      notes: healthValue('ha-notes', 'health-notes')
     };
     (hid ? put('/api/health-assessments/' + hid, body) : post('/api/health-assessments', body)).then(function (res) {
       if (res.error) { showMsg('health-msg', res.error, true); return; }
