@@ -135,15 +135,49 @@
             <input type="text" id="health-diagnosis" placeholder="可选" style="flex:1;max-width:300px">
           </div>
           <div class="form-row">
+            <label>锻炼方式</label>
+            <div id="health-exercise-methods" style="display:flex;flex-wrap:wrap;gap:10px;flex:1">
+              <label><input type="checkbox" name="health-exercise-method" value="散步">散步</label>
+              <label><input type="checkbox" name="health-exercise-method" value="一般家务">一般家务</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打太极">打太极</label>
+              <label><input type="checkbox" name="health-exercise-method" value="快步走">快步走</label>
+              <label><input type="checkbox" name="health-exercise-method" value="爬楼梯">爬楼梯</label>
+              <label><input type="checkbox" name="health-exercise-method" value="跳广场舞">跳广场舞</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打网球">打网球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打羽毛球">打羽毛球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打乒乓球">打乒乓球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="骑自行车">骑自行车</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打篮球">打篮球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="跑步">跑步</label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>其他健康所需</label>
+            <div id="health-needs" style="display:flex;flex-wrap:wrap;gap:10px;flex:1">
+              <label><input type="checkbox" name="health-need" value="疾病筛查">疾病筛查</label>
+              <label><input type="checkbox" name="health-need" value="就医陪诊">就医陪诊</label>
+              <label><input type="checkbox" name="health-need" value="中医养生">中医养生</label>
+              <label><input type="checkbox" name="health-need" value="康复治疗">康复治疗</label>
+              <label><input type="checkbox" name="health-need" value="健康体检">健康体检</label>
+              <label><input type="checkbox" name="health-need" value="心理咨询">心理咨询</label>
+              <label><input type="checkbox" name="health-need" value="计划免疫">计划免疫</label>
+              <label><input type="checkbox" name="health-need" value="运动养生">运动养生</label>
+              <label><input type="checkbox" name="health-need" value="健康教育">健康教育</label>
+              <label><input type="checkbox" name="health-need" value="远程医疗服务">远程医疗服务</label>
+              <label><input type="checkbox" name="health-need" value="其他">其他</label>
+            </div>
+          </div>
+          <div class="form-row">
             <label>备注</label>
             <textarea id="health-notes" placeholder="可选" style="flex:1;max-width:400px"></textarea>
           </div>
           <div class="form-row">
+            <input type="hidden" id="health-id">
             <button class="btn btn-primary" id="btn-health-save">保存评估</button>
           </div>
           <div id="health-msg"></div>
           <h3>历史记录</h3>
-          <table><thead><tr><th>客户</th><th>日期</th><th>身高</th><th>体重</th><th>睡眠</th><th>病史</th></tr></thead><tbody id="health-list"></tbody></table>
+          <table><thead><tr><th>客户</th><th>日期</th><th>身高</th><th>体重</th><th>睡眠</th><th>病史</th><th>操作</th></tr></thead><tbody id="health-list"></tbody></table>
         </div>
       </div>
       <div id="page-appointments" class="page hide">

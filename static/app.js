@@ -187,13 +187,60 @@
     document.getElementById('modal-customer').classList.remove('hide');
   }
 
+  function getCheckedValues(selector) {
+    return Array.prototype.slice.call(document.querySelectorAll(selector + ':checked')).map(function (item) {
+      return item.value;
+    });
+  }
+
+  function setCheckedValues(selector, values) {
+    var arr = Array.isArray(values) ? values : [];
+    document.querySelectorAll(selector).forEach(function (item) {
+      item.checked = arr.indexOf(item.value) !== -1;
+    });
+  }
+
+  function resetHealthForm() {
+    document.getElementById('health-id').value = '';
+    document.getElementById('health-customer').value = '';
+    document.getElementById('health-height').value = '';
+    document.getElementById('health-weight').value = '';
+    document.getElementById('health-bp').value = '';
+    document.getElementById('health-symptoms').value = '';
+    document.getElementById('health-diagnosis').value = '';
+    document.getElementById('health-notes').value = '';
+    setCheckedValues('input[name="health-exercise-method"]', []);
+    setCheckedValues('input[name="health-need"]', []);
+  }
+
+  function fillHealthForm(data) {
+    document.getElementById('health-id').value = data.id || '';
+    document.getElementById('health-customer').value = data.customer_id || '';
+    document.getElementById('health-date').value = (data.assessment_date || '').slice(0, 10);
+    document.getElementById('health-height').value = data.height_cm || '';
+    document.getElementById('health-weight').value = data.weight_kg || '';
+    document.getElementById('health-bp').value = data.sleep_quality || '';
+    document.getElementById('health-symptoms').value = data.past_medical_history || '';
+    document.getElementById('health-diagnosis').value = data.family_history || '';
+    document.getElementById('health-notes').value = data.notes || '';
+    setCheckedValues('input[name="health-exercise-method"]', data.exercise_methods || []);
+    setCheckedValues('input[name="health-need"]', data.health_needs || []);
+  }
+
   function loadHealthPage() {
     fillCustomerSelect('health-customer');
     get('/api/health-assessments').then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = (list || []).map(function (h) {
-        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td><td><button class="btn btn-small btn-primary" data-health-edit="' + h.id + '">编辑</button></td></tr>';
       }).join('');
+      tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          get('/api/health-assessments/' + btn.dataset.healthEdit).then(function (data) {
+            fillHealthForm(data || {});
+          });
+        });
+      });
     });
   }
 
@@ -328,6 +375,7 @@
 
   document.getElementById('btn-health-save').addEventListener('click', function () {
     var cid = document.getElementById('health-customer').value;
+    var hid = document.getElementById('health-id').value;
     if (!cid) { showMsg('health-msg', '请选择客户', true); return; }
     var body = {
       customer_id: parseInt(cid, 10),
@@ -337,11 +385,14 @@
       sleep_quality: document.getElementById('health-bp').value || null,
       past_medical_history: document.getElementById('health-symptoms').value || null,
       family_history: document.getElementById('health-diagnosis').value || null,
+      exercise_methods: getCheckedValues('input[name="health-exercise-method"]'),
+      health_needs: getCheckedValues('input[name="health-need"]'),
       notes: document.getElementById('health-notes').value || null
     };
-    post('/api/health-assessments', body).then(function (res) {
+    (hid ? put('/api/health-assessments/' + hid, body) : post('/api/health-assessments', body)).then(function (res) {
       if (res.error) { showMsg('health-msg', res.error, true); return; }
       showMsg('health-msg', res.message);
+      resetHealthForm();
       loadHealthPage();
     });
   });
