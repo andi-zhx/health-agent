@@ -66,6 +66,7 @@
       <a href="#" data-page="customers">客户档案</a>
       <a href="#" data-page="health">健康档案</a>
       <a href="#" data-page="appointments">预约记录</a>
+      <a href="#" data-page="home-appointments">上门预约</a>
       <a href="#" data-page="checkins">来访签到</a>
       <a href="#" data-page="usage">仪器使用</a>
       <a href="#" data-page="surveys">满意度</a>
@@ -114,23 +115,23 @@
       </div>
       <div id="page-health" class="page hide">
         <div class="card">
-          <h2>健康档案</h2>
+          <h2>健康评估</h2>
           <div class="form-row">
             <label>客户</label>
             <select id="health-customer"></select>
-            <label>记录日期</label>
+            <label>评估日期</label>
             <input type="date" id="health-date">
             <label>身高(cm)</label>
             <input type="number" id="health-height" placeholder="可选" style="width:80px">
             <label>体重(kg)</label>
             <input type="number" id="health-weight" placeholder="可选" style="width:80px">
-            <label>血压</label>
-            <input type="text" id="health-bp" placeholder="如 120/80" style="width:100px">
+            <label>睡眠状况</label>
+            <input type="text" id="health-bp" placeholder="如：一般" style="width:100px">
           </div>
           <div class="form-row">
-            <label>症状</label>
+            <label>既往史</label>
             <input type="text" id="health-symptoms" placeholder="可选" style="flex:1;max-width:300px">
-            <label>诊断</label>
+            <label>家族史</label>
             <input type="text" id="health-diagnosis" placeholder="可选" style="flex:1;max-width:300px">
           </div>
           <div class="form-row">
@@ -138,11 +139,11 @@
             <textarea id="health-notes" placeholder="可选" style="flex:1;max-width:400px"></textarea>
           </div>
           <div class="form-row">
-            <button class="btn btn-primary" id="btn-health-save">保存记录</button>
+            <button class="btn btn-primary" id="btn-health-save">保存评估</button>
           </div>
           <div id="health-msg"></div>
           <h3>历史记录</h3>
-          <table><thead><tr><th>客户</th><th>日期</th><th>身高</th><th>体重</th><th>血压</th><th>症状/诊断</th></tr></thead><tbody id="health-list"></tbody></table>
+          <table><thead><tr><th>客户</th><th>日期</th><th>身高</th><th>体重</th><th>睡眠</th><th>病史</th></tr></thead><tbody id="health-list"></tbody></table>
         </div>
       </div>
       <div id="page-appointments" class="page hide">
@@ -151,8 +152,12 @@
           <div class="form-row">
             <label>客户</label>
             <select id="apt-customer"></select>
+            <label>项目</label>
+            <select id="apt-project"></select>
             <label>设备</label>
             <select id="apt-equipment"></select>
+            <label>人员</label>
+            <select id="apt-staff"></select>
             <label>日期</label>
             <input type="date" id="apt-date">
             <label>开始</label>
@@ -163,12 +168,37 @@
             <input type="text" id="apt-notes" placeholder="可选">
           </div>
           <div class="form-row">
-            <button class="btn btn-primary" id="btn-apt-check">检查可预约余量</button>
+            <button class="btn btn-primary" id="btn-apt-check">查询空余时段</button>
+            <button class="btn btn-secondary" id="btn-apt-options">查询可用资源</button>
             <button class="btn btn-primary" id="btn-apt-save">保存预约</button>
           </div>
           <div id="apt-availability" style="color:#2c3e50;margin-bottom:8px"></div>
           <div id="apt-msg"></div>
-          <table><thead><tr><th>客户</th><th>设备</th><th>日期</th><th>时间</th><th>状态</th><th>操作</th></tr></thead><tbody id="apt-list"></tbody></table>
+          <table><thead><tr><th>客户</th><th>项目</th><th>设备</th><th>人员</th><th>日期</th><th>时间</th><th>状态</th><th>操作</th></tr></thead><tbody id="apt-list"></tbody></table>
+        </div>
+      </div>
+      <div id="page-home-appointments" class="page hide">
+        <div class="card">
+          <h2>上门预约</h2>
+          <div class="form-row">
+            <label>客户</label><select id="home-customer"></select>
+            <label>项目</label><select id="home-project"></select>
+            <label>人员</label><select id="home-staff"></select>
+            <label>日期</label><input type="date" id="home-date">
+            <label>开始</label><input type="time" id="home-start">
+            <label>结束</label><input type="time" id="home-end">
+          </div>
+          <div class="form-row">
+            <label>地点</label><input type="text" id="home-location" style="flex:1">
+            <label>联系人</label><input type="text" id="home-contact-person">
+            <label>电话</label><input type="text" id="home-contact-phone">
+          </div>
+          <div class="form-row">
+            <label>备注</label><input type="text" id="home-notes" style="flex:1">
+            <button class="btn btn-primary" id="btn-home-save">保存上门预约</button>
+          </div>
+          <div id="home-msg"></div>
+          <table><thead><tr><th>客户</th><th>项目</th><th>日期</th><th>时间</th><th>地点</th><th>人员</th><th>状态</th></tr></thead><tbody id="home-list"></tbody></table>
         </div>
       </div>
       <div id="page-checkins" class="page hide">
@@ -252,6 +282,7 @@
             <button class="btn btn-primary" id="btn-export-customers">导出客户</button>
             <button class="btn btn-primary" id="btn-export-appointments">导出预约</button>
             <button class="btn btn-primary" id="btn-export-usage">导出使用记录</button>
+            <button class="btn btn-secondary" id="btn-backup-now">立即备份数据库</button>
           </div>
           <div id="export-msg"></div>
         </div>

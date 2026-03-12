@@ -15,6 +15,7 @@
     if (name === 'customers') loadCustomers();
     if (name === 'health') loadHealthPage();
     if (name === 'appointments') loadAppointmentsPage();
+    if (name === 'home-appointments') loadHomeAppointmentsPage();
     if (name === 'checkins') loadCheckinsPage();
     if (name === 'usage') loadUsagePage();
     if (name === 'surveys') loadSurveysPage();
@@ -119,6 +120,26 @@
     });
   }
 
+  function fillProjectSelect(selId, enabledOnly) {
+    get(enabledOnly ? '/api/projects/enabled' : '/api/projects').then(function (list) {
+      var sel = document.getElementById(selId);
+      if (!sel) return;
+      var old = sel.value;
+      sel.innerHTML = '<option value="">请选择项目</option>' + (list || []).map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join('');
+      if (old) sel.value = old;
+    });
+  }
+
+  function fillStaffSelect(selId) {
+    get('/api/staff/available').then(function (list) {
+      var sel = document.getElementById(selId);
+      if (!sel) return;
+      var old = sel.value;
+      sel.innerHTML = '<option value="">不指定</option>' + (list || []).map(function (s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('');
+      if (old) sel.value = old;
+    });
+  }
+
   function loadCustomers() {
     var q = document.getElementById('customer-search').value;
     get('/api/customers' + (q ? '?search=' + encodeURIComponent(q) : '')).then(function (list) {
@@ -168,22 +189,24 @@
 
   function loadHealthPage() {
     fillCustomerSelect('health-customer');
-    get('/api/health-records').then(function (list) {
+    get('/api/health-assessments').then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = (list || []).map(function (h) {
-        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.record_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.blood_pressure || '-') + '</td><td>' + (h.symptoms || h.diagnosis || '-') + '</td></tr>';
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
       }).join('');
     });
   }
 
   function loadAppointmentsPage() {
     fillCustomerSelect('apt-customer');
+    fillProjectSelect('apt-project', true);
     fillEquipmentSelect('apt-equipment');
+    fillStaffSelect('apt-staff');
     get('/api/appointments').then(function (list) {
       var tbody = document.getElementById('apt-list');
       tbody.innerHTML = (list || []).map(function (a) {
         var cancelBtn = a.status === 'scheduled' ? '<button class="btn btn-small btn-danger" data-cancel="' + a.id + '">取消</button>' : '';
-        return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.equipment_name || '') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.status || '') + '</td><td>' + cancelBtn + '</td></tr>';
+        return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.project_name || '-') + '</td><td>' + (a.equipment_name || '-') + '</td><td>' + (a.staff_name || '-') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.status || '') + '</td><td>' + cancelBtn + '</td></tr>';
       }).join('');
       tbody.querySelectorAll('[data-cancel]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -209,20 +232,50 @@
 
   function checkAppointmentAvailability() {
     var date = document.getElementById('apt-date').value;
-    var start = document.getElementById('apt-start').value;
-    var end = document.getElementById('apt-end').value;
-    if (!date || !start || !end) {
-      document.getElementById('apt-availability').textContent = '请先选择日期、开始时间、结束时间';
+    var projectId = document.getElementById('apt-project').value;
+    if (!date || !projectId) {
+      document.getElementById('apt-availability').textContent = '请先选择日期和项目';
       return;
     }
-    get('/api/equipment/availability-summary?date=' + encodeURIComponent(date) + '&start_time=' + encodeURIComponent(start) + '&end_time=' + encodeURIComponent(end)).then(function (res) {
-      if (res.error) {
-        document.getElementById('apt-availability').textContent = res.error;
-        return;
-      }
-      var names = (res.available_equipment || []).map(function (e) { return e.name; }).join('、');
-      document.getElementById('apt-availability').textContent =
-        '该时段可预约设备：' + res.available_count + '/' + res.total_equipment + (names ? '（' + names + '）' : '');
+    get('/api/appointments/free-slots?date=' + encodeURIComponent(date) + '&project_id=' + encodeURIComponent(projectId)).then(function (res) {
+      if (res.error) { document.getElementById('apt-availability').textContent = res.error; return; }
+      document.getElementById('apt-availability').innerHTML = (res || []).map(function (s) {
+        return '<button class="btn btn-small btn-secondary" data-slot="' + s.start_time + ',' + s.end_time + '">' + s.start_time + '-' + s.end_time + ' (设备余量' + s.remaining_equipment + ' 人员' + s.available_staff_count + ')</button>';
+      }).join(' ');
+      document.querySelectorAll('[data-slot]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var t = b.dataset.slot.split(',');
+          document.getElementById('apt-start').value = t[0];
+          document.getElementById('apt-end').value = t[1];
+        });
+      });
+    });
+  }
+
+  function loadAvailableOptions() {
+    var date = document.getElementById('apt-date').value;
+    var start = document.getElementById('apt-start').value;
+    var end = document.getElementById('apt-end').value;
+    var projectId = document.getElementById('apt-project').value;
+    if (!date || !start || !end || !projectId) { showMsg('apt-msg', '请先选择项目和时段', true); return; }
+    get('/api/appointments/available-options?date=' + encodeURIComponent(date) + '&start_time=' + encodeURIComponent(start) + '&end_time=' + encodeURIComponent(end) + '&project_id=' + encodeURIComponent(projectId)).then(function (res) {
+      if (res.error) { showMsg('apt-msg', res.error, true); return; }
+      var eqSel = document.getElementById('apt-equipment');
+      var stSel = document.getElementById('apt-staff');
+      eqSel.innerHTML = '<option value="">不指定设备</option>' + (res.available_equipment || []).map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+      stSel.innerHTML = '<option value="">不指定人员</option>' + (res.available_staff || []).map(function (s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('');
+    });
+  }
+
+  function loadHomeAppointmentsPage() {
+    fillCustomerSelect('home-customer');
+    fillProjectSelect('home-project', true);
+    fillStaffSelect('home-staff');
+    get('/api/home-appointments').then(function (list) {
+      var tbody = document.getElementById('home-list');
+      tbody.innerHTML = (list || []).map(function (a) {
+        return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.project_name || '-') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.location || '-') + '</td><td>' + (a.staff_name || '-') + '</td><td>' + (a.status || '') + '</td></tr>';
+      }).join('');
     });
   }
 
@@ -278,15 +331,15 @@
     if (!cid) { showMsg('health-msg', '请选择客户', true); return; }
     var body = {
       customer_id: parseInt(cid, 10),
-      record_date: document.getElementById('health-date').value,
+      assessment_date: document.getElementById('health-date').value,
       height_cm: document.getElementById('health-height').value || null,
       weight_kg: document.getElementById('health-weight').value || null,
-      blood_pressure: document.getElementById('health-bp').value || null,
-      symptoms: document.getElementById('health-symptoms').value || null,
-      diagnosis: document.getElementById('health-diagnosis').value || null,
+      sleep_quality: document.getElementById('health-bp').value || null,
+      past_medical_history: document.getElementById('health-symptoms').value || null,
+      family_history: document.getElementById('health-diagnosis').value || null,
       notes: document.getElementById('health-notes').value || null
     };
-    post('/api/health-records', body).then(function (res) {
+    post('/api/health-assessments', body).then(function (res) {
       if (res.error) { showMsg('health-msg', res.error, true); return; }
       showMsg('health-msg', res.message);
       loadHealthPage();
@@ -294,17 +347,20 @@
   });
 
   document.getElementById('btn-apt-check').addEventListener('click', checkAppointmentAvailability);
+  document.getElementById('btn-apt-options').addEventListener('click', loadAvailableOptions);
 
   document.getElementById('btn-apt-save').addEventListener('click', function () {
     var body = {
       customer_id: document.getElementById('apt-customer').value,
+      project_id: document.getElementById('apt-project').value,
       equipment_id: document.getElementById('apt-equipment').value,
+      staff_id: document.getElementById('apt-staff').value,
       appointment_date: document.getElementById('apt-date').value,
       start_time: document.getElementById('apt-start').value,
       end_time: document.getElementById('apt-end').value,
       notes: document.getElementById('apt-notes').value
     };
-    if (!body.customer_id || !body.equipment_id || !body.appointment_date || !body.start_time || !body.end_time) {
+    if (!body.customer_id || !body.project_id || !body.appointment_date || !body.start_time || !body.end_time) {
       showMsg('apt-msg', '请填写必填项', true);
       return;
     }
@@ -333,6 +389,29 @@
       if (res.error) { showMsg('checkin-msg', res.error, true); return; }
       showMsg('checkin-msg', res.message);
       loadCheckinsPage();
+    });
+  });
+
+  document.getElementById('btn-home-save').addEventListener('click', function () {
+    var body = {
+      customer_id: document.getElementById('home-customer').value,
+      project_id: document.getElementById('home-project').value,
+      staff_id: document.getElementById('home-staff').value,
+      appointment_date: document.getElementById('home-date').value,
+      start_time: document.getElementById('home-start').value,
+      end_time: document.getElementById('home-end').value,
+      location: document.getElementById('home-location').value,
+      contact_person: document.getElementById('home-contact-person').value,
+      contact_phone: document.getElementById('home-contact-phone').value,
+      notes: document.getElementById('home-notes').value
+    };
+    if (!body.customer_id || !body.project_id || !body.appointment_date || !body.start_time || !body.end_time || !body.location) {
+      showMsg('home-msg', '请填写必填项', true); return;
+    }
+    post('/api/home-appointments', body).then(function (res) {
+      if (res.error) { showMsg('home-msg', res.error, true); return; }
+      showMsg('home-msg', res.message);
+      loadHomeAppointmentsPage();
     });
   });
 
@@ -394,6 +473,13 @@
     });
   });
 
+  document.getElementById('btn-backup-now').addEventListener('click', function () {
+    post('/api/system/backup', {}).then(function (res) {
+      if (res.error || res.status === 'failed') { showMsg('export-msg', res.message || res.error || '备份失败', true); return; }
+      showMsg('export-msg', '备份成功：' + (res.filename || ''));
+    });
+  });
+
   document.getElementById('btn-search').addEventListener('click', function () {
     var q = document.getElementById('search-q').value.trim();
     var type = document.getElementById('search-type').value;
@@ -430,6 +516,7 @@
   var today = new Date().toISOString().slice(0, 10);
   document.getElementById('health-date').value = today;
   document.getElementById('apt-date').value = today;
+  document.getElementById('home-date').value = today;
   document.getElementById('usage-date').value = today;
 
   showPage('home');
