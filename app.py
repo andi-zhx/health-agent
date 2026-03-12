@@ -113,6 +113,30 @@ def decode_multi_value(value):
         return []
 
 
+HEALTH_ASSESSMENT_ALLOWED_VALUES = {
+    'allergy_history': {'无', '有'},
+    'smoking_status': {'无', '有'},
+    'drinking_status': {'无', '有'},
+    'fatigue_last_month': {'无', '稍微疲劳', '比较疲劳', '非常疲劳'},
+    'sleep_quality': {'很差', '差', '一般', '良好'},
+    'sleep_hours': {'<6小时', '6-8小时', '9-10小时', '>10小时'},
+    'blood_pressure_test': {'未监测', '正常', '偏低', '偏高'},
+    'blood_lipid_test': {'未监测', '正常', '偏高'},
+    'chronic_pain': {'无', '有'},
+    'weekly_exercise_freq': {'≤2次', '3-4次', '5-7次', '≥7次'},
+}
+
+
+def validate_health_assessment_enums(data):
+    for field, allowed in HEALTH_ASSESSMENT_ALLOWED_VALUES.items():
+        value = data.get(field)
+        if value in (None, ''):
+            continue
+        if value not in allowed:
+            return f'{field} 的值非法: {value}'
+    return None
+
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
@@ -770,6 +794,9 @@ def api_health_assessments_list():
 @app.route('/api/health-assessments', methods=['POST'])
 def api_health_assessment_create():
     d = request.json or {}
+    invalid_msg = validate_health_assessment_enums(d)
+    if invalid_msg:
+        return jsonify({'error': invalid_msg}), 400
     conn = get_db()
     c = conn.cursor()
     c.execute('''
@@ -810,6 +837,9 @@ def api_health_assessment_get(hid):
 @app.route('/api/health-assessments/<int:hid>', methods=['PUT'])
 def api_health_assessment_update(hid):
     d = request.json or {}
+    invalid_msg = validate_health_assessment_enums(d)
+    if invalid_msg:
+        return jsonify({'error': invalid_msg}), 400
     conn = get_db()
     c = conn.cursor()
     c.execute('''
