@@ -120,8 +120,12 @@
     });
   }
 
-  function fillProjectSelect(selId, enabledOnly) {
-    get(enabledOnly ? '/api/projects/enabled' : '/api/projects').then(function (list) {
+  function fillProjectSelect(selId, enabledOnly, scene) {
+    var path = enabledOnly ? '/api/projects/enabled' : '/api/projects';
+    if (scene) {
+      path += '?scene=' + encodeURIComponent(scene);
+    }
+    get(path).then(function (list) {
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
@@ -187,13 +191,29 @@
     document.getElementById('modal-customer').classList.remove('hide');
   }
 
+  function healthValue() {
+    var ids = Array.prototype.slice.call(arguments);
+    for (var i = 0; i < ids.length; i += 1) {
+      var el = document.getElementById(ids[i]);
+      if (el) return el.value || null;
+    }
+    return null;
+  }
+
   function loadHealthPage() {
     fillCustomerSelect('health-customer');
     get('/api/health-assessments').then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = (list || []).map(function (h) {
-        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
       }).join('');
+      tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          get('/api/health-assessments/' + btn.dataset.healthEdit).then(function (data) {
+            fillHealthForm(data || {});
+          });
+        });
+      });
     });
   }
 
@@ -269,7 +289,7 @@
 
   function loadHomeAppointmentsPage() {
     fillCustomerSelect('home-customer');
-    fillProjectSelect('home-project', true);
+    fillProjectSelect('home-project', true, 'home');
     fillStaffSelect('home-staff');
     get('/api/home-appointments').then(function (list) {
       var tbody = document.getElementById('home-list');
@@ -328,20 +348,58 @@
 
   document.getElementById('btn-health-save').addEventListener('click', function () {
     var cid = document.getElementById('health-customer').value;
+    var hid = document.getElementById('health-id').value;
     if (!cid) { showMsg('health-msg', '请选择客户', true); return; }
     var body = {
       customer_id: parseInt(cid, 10),
       assessment_date: document.getElementById('health-date').value,
       height_cm: document.getElementById('health-height').value || null,
       weight_kg: document.getElementById('health-weight').value || null,
-      sleep_quality: document.getElementById('health-bp').value || null,
+      allergy_history: document.getElementById('health-allergy-history').value || null,
+      smoking_status: document.getElementById('health-smoking-status').value || null,
+      drinking_status: document.getElementById('health-drinking-status').value || null,
+      fatigue_last_month: document.getElementById('health-fatigue-last-month').value || null,
+      sleep_quality: document.getElementById('health-sleep-quality').value || null,
+      sleep_hours: document.getElementById('health-sleep-hours').value || null,
+      blood_pressure_test: document.getElementById('health-blood-pressure-test').value || null,
+      blood_lipid_test: document.getElementById('health-blood-lipid-test').value || null,
+      chronic_pain: document.getElementById('health-chronic-pain').value || null,
+      weekly_exercise_freq: document.getElementById('health-weekly-exercise-freq').value || null,
       past_medical_history: document.getElementById('health-symptoms').value || null,
       family_history: document.getElementById('health-diagnosis').value || null,
+      exercise_methods: getCheckedValues('input[name="health-exercise-method"]'),
+      health_needs: getCheckedValues('input[name="health-need"]'),
       notes: document.getElementById('health-notes').value || null
+      assessor: healthValue('ha-assessor'),
+      age: healthValue('ha-age'),
+      height_cm: healthValue('ha-height-cm', 'health-height'),
+      weight_kg: healthValue('ha-weight-kg', 'health-weight'),
+      address: healthValue('ha-address'),
+      past_medical_history: healthValue('ha-past-medical-history', 'health-symptoms'),
+      family_history: healthValue('ha-family-history', 'health-diagnosis'),
+      allergy_history: healthValue('ha-allergy-history'),
+      allergy_details: healthValue('ha-allergy-details'),
+      smoking_status: healthValue('ha-smoking-status'),
+      smoking_years: healthValue('ha-smoking-years'),
+      cigarettes_per_day: healthValue('ha-cigarettes-per-day'),
+      drinking_status: healthValue('ha-drinking-status'),
+      drinking_years: healthValue('ha-drinking-years'),
+      fatigue_last_month: healthValue('ha-fatigue-last-month'),
+      sleep_quality: healthValue('ha-sleep-quality', 'health-bp'),
+      sleep_hours: healthValue('ha-sleep-hours'),
+      blood_pressure_test: healthValue('ha-blood-pressure-test'),
+      blood_lipid_test: healthValue('ha-blood-lipid-test'),
+      chronic_pain: healthValue('ha-chronic-pain'),
+      pain_details: healthValue('ha-pain-details'),
+      exercise_methods: healthValue('ha-exercise-methods'),
+      weekly_exercise_freq: healthValue('ha-weekly-exercise-freq'),
+      health_needs: healthValue('ha-health-needs'),
+      notes: healthValue('ha-notes', 'health-notes')
     };
-    post('/api/health-assessments', body).then(function (res) {
+    (hid ? put('/api/health-assessments/' + hid, body) : post('/api/health-assessments', body)).then(function (res) {
       if (res.error) { showMsg('health-msg', res.error, true); return; }
       showMsg('health-msg', res.message);
+      resetHealthForm();
       loadHealthPage();
     });
   });

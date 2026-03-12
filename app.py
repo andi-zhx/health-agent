@@ -99,6 +99,47 @@ def ensure_home_appointments_schema(cursor):
     ''')
     cursor.execute('DROP TABLE home_appointments')
     cursor.execute('ALTER TABLE home_appointments_new RENAME TO home_appointments')
+def table_exists(cursor, table_name):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cursor.fetchone() is not None
+
+
+def load_projects_with_parallel_strategy(cursor, enabled_only=False, scene=None):
+    if scene != 'home' or not table_exists(cursor, 'service_projects'):
+        if enabled_only:
+            cursor.execute("SELECT * FROM therapy_projects WHERE status='enabled' ORDER BY name")
+        else:
+            cursor.execute('SELECT * FROM therapy_projects ORDER BY id DESC')
+        return row_list(cursor.fetchall())
+
+    therapy_sql = 'SELECT id, name, category, status, description, created_at FROM therapy_projects'
+    if enabled_only:
+        therapy_sql += " WHERE status='enabled'"
+    therapy_sql += ' ORDER BY id DESC'
+    cursor.execute(therapy_sql)
+    projects = row_list(cursor.fetchall())
+
+    service_sql = 'SELECT id, name, category, status, description, created_at FROM service_projects'
+    if enabled_only:
+        service_sql += " WHERE status='enabled'"
+    service_sql += ' ORDER BY id DESC'
+    cursor.execute(service_sql)
+    service_projects = row_list(cursor.fetchall())
+
+    by_name = {p['name']: p for p in projects}
+    for sp in service_projects:
+        if sp['name'] in by_name:
+            by_name[sp['name']].update({
+                'category': sp.get('category') or by_name[sp['name']].get('category'),
+                'status': sp.get('status') or by_name[sp['name']].get('status'),
+                'description': sp.get('description') or by_name[sp['name']].get('description'),
+            })
+        else:
+            projects.append(sp)
+            by_name[sp['name']] = sp
+
+    projects.sort(key=lambda x: x.get('id') or 0, reverse=True)
+    return projects
 
 
 def create_db_backup(backup_type='manual', notes=''):
@@ -241,6 +282,28 @@ def parse_home_appointment_payload(payload, conn):
         'service_project': service_project,
         'staff_name': staff_name,
     }
+HEALTH_ASSESSMENT_ALLOWED_VALUES = {
+    'allergy_history': {'无', '有'},
+    'smoking_status': {'无', '有'},
+    'drinking_status': {'无', '有'},
+    'fatigue_last_month': {'无', '稍微疲劳', '比较疲劳', '非常疲劳'},
+    'sleep_quality': {'很差', '差', '一般', '良好'},
+    'sleep_hours': {'<6小时', '6-8小时', '9-10小时', '>10小时'},
+    'blood_pressure_test': {'未监测', '正常', '偏低', '偏高'},
+    'blood_lipid_test': {'未监测', '正常', '偏高'},
+    'chronic_pain': {'无', '有'},
+    'weekly_exercise_freq': {'≤2次', '3-4次', '5-7次', '≥7次'},
+}
+
+
+def validate_health_assessment_enums(data):
+    for field, allowed in HEALTH_ASSESSMENT_ALLOWED_VALUES.items():
+        value = data.get(field)
+        if value in (None, ''):
+            continue
+        if value not in allowed:
+            return f'{field} 的值非法: {value}'
+    return None
 
 
 def init_db():
@@ -401,6 +464,25 @@ def init_db():
     ''')
 
     c.execute('''
+        CREATE TABLE IF NOT EXISTS service_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT,
+            status TEXT DEFAULT 'enabled',
+            description TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    ensure_columns(c, 'service_projects', {
+        'name': 'TEXT',
+        'category': 'TEXT',
+        'status': "TEXT DEFAULT 'enabled'",
+        'description': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
+
+    c.execute('''
         CREATE TABLE IF NOT EXISTS staff (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -418,6 +500,12 @@ def init_db():
             customer_id INTEGER,
             project_id INTEGER,
             staff_id INTEGER,
+            customer_name TEXT,
+            phone TEXT,
+            home_time TEXT,
+            home_address TEXT,
+            service_project TEXT,
+            staff_name TEXT,
             appointment_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
@@ -438,8 +526,9 @@ def init_db():
         )
     ''')
 
-    ensure_home_appointments_schema(c)
     ensure_columns(c, 'home_appointments', {
+        'customer_name': 'TEXT',
+        'phone': 'TEXT',
         'home_time': 'TEXT',
         'home_address': 'TEXT',
         'service_project': 'TEXT',
@@ -535,6 +624,23 @@ def init_db():
                 INSERT INTO therapy_projects (name, category, duration_minutes, need_equipment, equipment_type, price, status, description)
                 VALUES (?,?,?,?,?,?,?,?)
             ''', row)
+
+    service_project_seeds = [
+        ('高压氧仓', '上门', 'enabled', '高压氧仓服务项目'),
+        ('艾灸', '上门', 'enabled', '艾灸服务项目'),
+        ('读书室', '上门', 'enabled', '读书室服务项目'),
+        ('棋牌室', '上门', 'enabled', '棋牌室服务项目'),
+        ('听力测试', '上门', 'enabled', '听力测试服务项目'),
+        ('乒乓球', '上门', 'enabled', '乒乓球服务项目'),
+        ('台球', '上门', 'enabled', '台球服务项目'),
+    ]
+    for row in service_project_seeds:
+        c.execute('SELECT id FROM service_projects WHERE name=?', (row[0],))
+        if not c.fetchone():
+            c.execute(
+                'INSERT INTO service_projects (name, category, status, description) VALUES (?,?,?,?)',
+                row,
+            )
 
     c.execute("SELECT COUNT(*) FROM staff")
     if c.fetchone()[0] == 0:
@@ -795,22 +901,22 @@ def api_equipment_availability_summary():
 # ========== 服务项目与人员 ==========
 @app.route('/api/projects', methods=['GET'])
 def api_projects_list():
+    scene = request.args.get('scene')
     conn = get_db()
     c = conn.cursor()
-    c.execute('SELECT * FROM therapy_projects ORDER BY id DESC')
-    rows = c.fetchall()
+    rows = load_projects_with_parallel_strategy(c, enabled_only=False, scene=scene)
     conn.close()
-    return jsonify(row_list(rows))
+    return jsonify(rows)
 
 
 @app.route('/api/projects/enabled', methods=['GET'])
 def api_projects_enabled():
+    scene = request.args.get('scene')
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM therapy_projects WHERE status='enabled' ORDER BY name")
-    rows = c.fetchall()
+    rows = load_projects_with_parallel_strategy(c, enabled_only=True, scene=scene)
     conn.close()
-    return jsonify(row_list(rows))
+    return jsonify(rows)
 
 
 @app.route('/api/projects', methods=['POST'])
@@ -895,7 +1001,6 @@ def api_health_assessments_list():
     conn = get_db()
     c = conn.cursor()
     sql = 'SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE 1=1'
-    params = []
     if customer_id:
         sql += ' AND h.customer_id=?'
         params.append(customer_id)
@@ -912,6 +1017,9 @@ def api_health_assessments_list():
 @app.route('/api/health-assessments', methods=['POST'])
 def api_health_assessment_create():
     d = request.json or {}
+    invalid_msg = validate_health_assessment_enums(d)
+    if invalid_msg:
+        return jsonify({'error': invalid_msg}), 400
     conn = get_db()
     c = conn.cursor()
     c.execute('''
@@ -952,6 +1060,9 @@ def api_health_assessment_get(hid):
 @app.route('/api/health-assessments/<int:hid>', methods=['PUT'])
 def api_health_assessment_update(hid):
     d = request.json or {}
+    invalid_msg = validate_health_assessment_enums(d)
+    if invalid_msg:
+        return jsonify({'error': invalid_msg}), 400
     conn = get_db()
     c = conn.cursor()
     c.execute('''
@@ -1153,6 +1264,30 @@ def api_home_appointments_create():
     conn = get_db()
     d = parse_home_appointment_payload(request.json, conn)
     if not all(d.get(k) for k in ('customer_name', 'phone', 'appointment_date', 'start_time', 'end_time', 'home_address', 'service_project')):
+    c = conn.cursor()
+
+    c.execute('SELECT id, name, phone FROM customers WHERE id=?', (d.get('customer_id'),))
+    customer = c.fetchone()
+    if not customer:
+        conn.close()
+        return jsonify({'error': '客户不存在'}), 404
+
+    c.execute('SELECT id, name FROM therapy_projects WHERE id=?', (d.get('project_id'),))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '上门项目不存在'}), 404
+
+    staff = None
+    if d.get('staff_id'):
+        c.execute('SELECT id, name FROM staff WHERE id=?', (d.get('staff_id'),))
+        staff = c.fetchone()
+        if not staff:
+            conn.close()
+            return jsonify({'error': '服务人员不存在'}), 404
+
+    c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+    if c.fetchone()['n'] > 0:
         conn.close()
         return jsonify({'error': '缺少必填字段'}), 400
 
@@ -1188,6 +1323,20 @@ def api_home_appointments_create():
         d.get('home_address'), d.get('customer_name'), d.get('phone'),
         d.get('home_time'), d.get('home_address'), d.get('service_project'),
         d.get('staff_name'), d.get('notes'), d.get('status', 'scheduled')
+    home_address = d.get('home_address') or d.get('location')
+    home_time = d.get('home_time') or f"{d.get('start_time')}-{d.get('end_time')}"
+
+    c.execute('''
+        INSERT INTO home_appointments (
+            customer_id, project_id, staff_id,
+            customer_name, phone, home_time, home_address, service_project, staff_name,
+            appointment_date, start_time, end_time, location, contact_person, contact_phone, notes, status, updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ''', (
+        d.get('customer_id'), d.get('project_id'), d.get('staff_id'),
+        customer['name'], customer['phone'], home_time, home_address, project['name'], staff['name'] if staff else None,
+        d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'), d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled')
     ))
     conn.commit()
     rid = c.lastrowid
@@ -1244,6 +1393,47 @@ def api_home_appointments_update(hid):
         d.get('home_address'), d.get('customer_name'), d.get('phone'),
         d.get('home_time'), d.get('home_address'), d.get('service_project'),
         d.get('staff_name'), d.get('notes'), d.get('status', 'scheduled'), hid
+
+    c.execute('SELECT id FROM home_appointments WHERE id=?', (hid,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': '上门预约不存在'}), 404
+
+    c.execute('SELECT id, name, phone FROM customers WHERE id=?', (d.get('customer_id'),))
+    customer = c.fetchone()
+    if not customer:
+        conn.close()
+        return jsonify({'error': '客户不存在'}), 404
+
+    c.execute('SELECT id, name FROM therapy_projects WHERE id=?', (d.get('project_id'),))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '上门项目不存在'}), 404
+
+    staff = None
+    if d.get('staff_id'):
+        c.execute('SELECT id, name FROM staff WHERE id=?', (d.get('staff_id'),))
+        staff = c.fetchone()
+        if not staff:
+            conn.close()
+            return jsonify({'error': '服务人员不存在'}), 404
+
+    home_address = d.get('home_address') or d.get('location')
+    home_time = d.get('home_time') or f"{d.get('start_time')}-{d.get('end_time')}"
+
+    c.execute('''
+        UPDATE home_appointments
+        SET customer_id=?, project_id=?, staff_id=?,
+            customer_name=?, phone=?, home_time=?, home_address=?, service_project=?, staff_name=?,
+            appointment_date=?, start_time=?, end_time=?, location=?,
+            contact_person=?, contact_phone=?, notes=?, status=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    ''', (
+        d.get('customer_id'), d.get('project_id'), d.get('staff_id'),
+        customer['name'], customer['phone'], home_time, home_address, project['name'], staff['name'] if staff else None,
+        d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('location'),
+        d.get('contact_person'), d.get('contact_phone'), d.get('notes'), d.get('status', 'scheduled'), hid
     ))
     conn.commit()
     conn.close()
