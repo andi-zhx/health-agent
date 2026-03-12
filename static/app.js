@@ -1,8 +1,19 @@
 (function () {
   const API = '';
+  var customersCache = [];
   function get(url) { return fetch(API + url).then(function (r) { return r.json(); }); }
   function post(url, body) { return fetch(API + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }); }
   function put(url, body) { return fetch(API + url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }); }
+
+  function loadCustomersCache() {
+    return get('/api/customers').then(function (list) {
+      customersCache = list || [];
+      return customersCache;
+    }).catch(function () {
+      customersCache = [];
+      return customersCache;
+    });
+  }
 
   function showPage(name) {
     document.querySelectorAll('.page').forEach(function (el) { el.classList.add('hide'); });
@@ -101,11 +112,51 @@
   }
 
   function fillCustomerSelect(selId) {
-    get('/api/customers').then(function (list) {
+    function render(list) {
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
       sel.innerHTML = '<option value="">请选择客户</option>' + (list || []).map(function (c) { return '<option value="' + c.id + '">' + c.name + ' ' + (c.phone || '') + '</option>'; }).join('');
+      if (old) sel.value = old;
+    }
+    if (customersCache.length) {
+      render(customersCache);
+      return;
+    }
+    loadCustomersCache().then(render);
+  }
+
+  function fillHomeCustomerDatalist() {
+    var dl = document.getElementById('home-customer-options');
+    if (!dl) return;
+    dl.innerHTML = (customersCache || []).map(function (c) {
+      return '<option value="' + (c.name || '') + '" data-id="' + c.id + '"></option>';
+    }).join('');
+  }
+
+  function findCustomerByName(name) {
+    var target = (name || '').trim();
+    if (!target) return null;
+    for (var i = 0; i < customersCache.length; i += 1) {
+      if ((customersCache[i].name || '').trim() === target) return customersCache[i];
+    }
+    return null;
+  }
+
+  function onHomeCustomerChange() {
+    var name = document.getElementById('home-customer-name').value;
+    var customer = findCustomerByName(name);
+    if (!customer) return;
+    if (!document.getElementById('home-phone').value) document.getElementById('home-phone').value = customer.phone || '';
+    if (!document.getElementById('home-address').value) document.getElementById('home-address').value = customer.address || '';
+  }
+
+  function fillHomeProjectSelect() {
+    get('/api/projects/enabled').then(function (serviceProjects) {
+      var sel = document.getElementById('home-project');
+      if (!sel) return;
+      var old = sel.value;
+      sel.innerHTML = '<option value="">请选择上门项目</option>' + (serviceProjects || []).map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -268,8 +319,8 @@
   }
 
   function loadHomeAppointmentsPage() {
-    fillCustomerSelect('home-customer');
-    fillProjectSelect('home-project', true);
+    fillHomeCustomerDatalist();
+    fillHomeProjectSelect();
     fillStaffSelect('home-staff');
     get('/api/home-appointments').then(function (list) {
       var tbody = document.getElementById('home-list');
@@ -393,20 +444,25 @@
   });
 
   document.getElementById('btn-home-save').addEventListener('click', function () {
+    var customerName = document.getElementById('home-customer-name').value.trim();
+    var customer = findCustomerByName(customerName);
+    var datetimeValue = document.getElementById('home-datetime').value;
+    var appointmentDate = datetimeValue ? datetimeValue.slice(0, 10) : '';
+    var startTime = datetimeValue ? datetimeValue.slice(11, 16) : '';
     var body = {
-      customer_id: document.getElementById('home-customer').value,
+      customer_id: customer ? customer.id : null,
+      customer_name: customerName,
+      contact_phone: document.getElementById('home-phone').value.trim(),
+      appointment_date: appointmentDate,
+      start_time: startTime,
+      end_time: startTime,
+      location: document.getElementById('home-address').value.trim(),
       project_id: document.getElementById('home-project').value,
       staff_id: document.getElementById('home-staff').value,
-      appointment_date: document.getElementById('home-date').value,
-      start_time: document.getElementById('home-start').value,
-      end_time: document.getElementById('home-end').value,
-      location: document.getElementById('home-location').value,
-      contact_person: document.getElementById('home-contact-person').value,
-      contact_phone: document.getElementById('home-contact-phone').value,
-      notes: document.getElementById('home-notes').value
+      notes: document.getElementById('home-notes').value.trim()
     };
-    if (!body.customer_id || !body.project_id || !body.appointment_date || !body.start_time || !body.end_time || !body.location) {
-      showMsg('home-msg', '请填写必填项', true); return;
+    if (!body.customer_id || !body.customer_name || !body.contact_phone || !body.appointment_date || !body.start_time || !body.location || !body.project_id || !body.staff_id) {
+      showMsg('home-msg', '请填写必填项（姓名需匹配老客户）', true); return;
     }
     post('/api/home-appointments', body).then(function (res) {
       if (res.error) { showMsg('home-msg', res.error, true); return; }
@@ -516,8 +572,18 @@
   var today = new Date().toISOString().slice(0, 10);
   document.getElementById('health-date').value = today;
   document.getElementById('apt-date').value = today;
-  document.getElementById('home-date').value = today;
   document.getElementById('usage-date').value = today;
+
+  loadCustomersCache().then(function () {
+    fillHomeCustomerDatalist();
+  });
+
+  var homeDatetime = new Date();
+  homeDatetime.setMinutes(homeDatetime.getMinutes() - homeDatetime.getTimezoneOffset());
+  document.getElementById('home-datetime').value = homeDatetime.toISOString().slice(0, 16);
+
+  document.getElementById('home-customer-name').addEventListener('change', onHomeCustomerChange);
+  document.getElementById('home-customer-name').addEventListener('input', onHomeCustomerChange);
 
   showPage('home');
 })();

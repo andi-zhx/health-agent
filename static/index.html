@@ -181,17 +181,16 @@
         <div class="card">
           <h2>上门预约</h2>
           <div class="form-row">
-            <label>客户</label><select id="home-customer"></select>
-            <label>项目</label><select id="home-project"></select>
-            <label>人员</label><select id="home-staff"></select>
-            <label>日期</label><input type="date" id="home-date">
-            <label>开始</label><input type="time" id="home-start">
-            <label>结束</label><input type="time" id="home-end">
+            <label>姓名</label>
+            <input type="text" id="home-customer-name" list="home-customer-options" placeholder="可选择老客户或手动输入">
+            <datalist id="home-customer-options"></datalist>
+            <label>手机号</label><input type="text" id="home-phone" placeholder="请输入手机号">
+            <label>时间</label><input type="datetime-local" id="home-datetime" step="60">
           </div>
           <div class="form-row">
-            <label>地点</label><input type="text" id="home-location" style="flex:1">
-            <label>联系人</label><input type="text" id="home-contact-person">
-            <label>电话</label><input type="text" id="home-contact-phone">
+            <label>家庭地址</label><input type="text" id="home-address" style="flex:1" placeholder="请输入上门地址">
+            <label>上门项目</label><select id="home-project"></select>
+            <label>服务人员</label><select id="home-staff"></select>
           </div>
           <div class="form-row">
             <label>备注</label><input type="text" id="home-notes" style="flex:1">
