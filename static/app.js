@@ -203,6 +203,13 @@
       tbody.innerHTML = (list || []).map(function (h) {
         return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
       }).join('');
+      tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          get('/api/health-assessments/' + btn.dataset.healthEdit).then(function (data) {
+            fillHealthForm(data || {});
+          });
+        });
+      });
     });
   }
 
@@ -337,6 +344,7 @@
 
   document.getElementById('btn-health-save').addEventListener('click', function () {
     var cid = document.getElementById('health-customer').value;
+    var hid = document.getElementById('health-id').value;
     if (!cid) { showMsg('health-msg', '请选择客户', true); return; }
     var body = {
       customer_id: parseInt(cid, 10),
@@ -355,6 +363,8 @@
       weekly_exercise_freq: document.getElementById('health-weekly-exercise-freq').value || null,
       past_medical_history: document.getElementById('health-symptoms').value || null,
       family_history: document.getElementById('health-diagnosis').value || null,
+      exercise_methods: getCheckedValues('input[name="health-exercise-method"]'),
+      health_needs: getCheckedValues('input[name="health-need"]'),
       notes: document.getElementById('health-notes').value || null
       assessor: healthValue('ha-assessor'),
       age: healthValue('ha-age'),
@@ -382,9 +392,10 @@
       health_needs: healthValue('ha-health-needs'),
       notes: healthValue('ha-notes', 'health-notes')
     };
-    post('/api/health-assessments', body).then(function (res) {
+    (hid ? put('/api/health-assessments/' + hid, body) : post('/api/health-assessments', body)).then(function (res) {
       if (res.error) { showMsg('health-msg', res.error, true); return; }
       showMsg('health-msg', res.message);
+      resetHealthForm();
       loadHealthPage();
     });
   });
