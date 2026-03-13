@@ -941,6 +941,7 @@ def api_staff_update(sid):
 @app.route('/api/health-assessments', methods=['GET'])
 def api_health_assessments_list():
     customer_id = request.args.get('customer_id', type=int)
+    search = (request.args.get('search', '') or '').strip()
     conn = get_db()
     c = conn.cursor()
     sql = 'SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE 1=1'
@@ -948,6 +949,9 @@ def api_health_assessments_list():
     if customer_id:
         sql += ' AND h.customer_id=?'
         params.append(customer_id)
+    if search:
+        sql += ' AND c.name LIKE ?'
+        params.append(f'%{search}%')
     sql += ' ORDER BY h.assessment_date DESC, h.id DESC'
     c.execute(sql, params)
     rows = row_list(c.fetchall())

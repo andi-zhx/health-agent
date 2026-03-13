@@ -159,6 +159,39 @@
     });
   }
 
+
+  var pendingAction = null;
+  var customerEditSnapshot = null;
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function selectedCustomerName() {
+    var sel = document.getElementById('health-customer');
+    if (!sel || sel.selectedIndex < 0) return '';
+    return sel.options[sel.selectedIndex].text || '';
+  }
+
+  function openConfirmModal(title, rows, onConfirm) {
+    pendingAction = onConfirm;
+    document.getElementById('modal-confirm-title').textContent = title;
+    document.getElementById('modal-confirm-content').innerHTML = rows.map(function (row) {
+      return '<div><strong>' + escapeHtml(row[0]) + '：</strong>' + escapeHtml(row[1] || '-') + '</div>';
+    }).join('');
+    document.getElementById('modal-edit-confirm').classList.remove('hide');
+  }
+
+  function closeConfirmModal() {
+    pendingAction = null;
+    document.getElementById('modal-edit-confirm').classList.add('hide');
+  }
+
   function loadCustomers() {
     var q = document.getElementById('customer-search').value;
     get('/api/customers' + (q ? '?search=' + encodeURIComponent(q) : '')).then(function (list) {
@@ -221,7 +254,8 @@
 
   function loadHealthPage() {
     fillCustomerSelect('health-customer');
-    get('/api/health-assessments').then(function (list) {
+    var q = (document.getElementById('health-search').value || '').trim();
+    get('/api/health-assessments' + (q ? '?search=' + encodeURIComponent(q) : '')).then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = toList(list).map(function (h) {
         return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td><td><button class="btn btn-small btn-primary" data-health-edit="' + h.id + '">编辑</button></td></tr>';
@@ -338,6 +372,20 @@
   });
 
   document.getElementById('btn-customer-search').addEventListener('click', loadCustomers);
+  document.getElementById('btn-customer-reset').addEventListener('click', function () {
+    document.getElementById('customer-search').value = '';
+    loadCustomers();
+  });
+
+  document.getElementById('btn-health-search').addEventListener('click', loadHealthPage);
+  document.getElementById('btn-health-reset').addEventListener('click', function () {
+    document.getElementById('health-search').value = '';
+    loadHealthPage();
+  });
+  document.getElementById('btn-confirm-cancel').addEventListener('click', closeConfirmModal);
+  document.getElementById('btn-confirm-submit').addEventListener('click', function () {
+    if (typeof pendingAction === 'function') pendingAction();
+  });
   document.getElementById('btn-customer-add').addEventListener('click', function () { openCustomerModal(null); });
   document.getElementById('btn-modal-cancel').addEventListener('click', function () { document.getElementById('modal-customer').classList.add('hide'); });
   document.getElementById('btn-modal-save').addEventListener('click', function () {
@@ -350,11 +398,33 @@
       gender: document.getElementById('mc-gender').value,
       birth_date: document.getElementById('mc-birth_date').value || null
     };
-    (id ? put('/api/customers/' + id, body) : post('/api/customers', body)).then(function (res) {
-      if (res.error) { showMsg('customer-msg', res.error, true); return; }
-      document.getElementById('modal-customer').classList.add('hide');
-      showMsg('customer-msg', res.message || '保存成功');
-      loadCustomers();
+
+    if (!id) {
+      post('/api/customers', body).then(function (res) {
+        if (res.error) { showMsg('customer-msg', res.error, true); return; }
+        document.getElementById('modal-customer').classList.add('hide');
+        showMsg('customer-msg', res.message || '保存成功');
+        loadCustomers();
+      });
+      return;
+    }
+
+    customerEditSnapshot = body;
+    openConfirmModal('确认修改客户信息', [
+      ['姓名', body.name],
+      ['身份证', body.id_card],
+      ['电话', body.phone],
+      ['地址', body.address],
+      ['性别', body.gender],
+      ['出生日期', body.birth_date]
+    ], function () {
+      put('/api/customers/' + id, customerEditSnapshot).then(function (res) {
+        if (res.error) { showMsg('customer-msg', res.error, true); return; }
+        closeConfirmModal();
+        document.getElementById('modal-customer').classList.add('hide');
+        showMsg('customer-msg', res.message || '保存成功');
+        loadCustomers();
+      });
     });
   });
 
@@ -391,10 +461,33 @@
       health_needs: healthCheckboxValues('health-need').concat(healthValue('ha-health-needs-other') ? ['其他:' + healthValue('ha-health-needs-other')] : []),
       notes: healthValue('ha-notes', 'health-notes')
     };
-    (hid ? put('/api/health-assessments/' + hid, body) : post('/api/health-assessments', body)).then(function (res) {
-      if (res.error) { showMsg('health-msg', res.error, true); return; }
-      showMsg('health-msg', res.message);
-      loadHealthPage();
+
+    if (!hid) {
+      post('/api/health-assessments', body).then(function (res) {
+        if (res.error) { showMsg('health-msg', res.error, true); return; }
+        showMsg('health-msg', res.message);
+        loadHealthPage();
+      });
+      return;
+    }
+
+    openConfirmModal('确认修改健康档案', [
+      ['客户', selectedCustomerName()],
+      ['日期', body.assessment_date],
+      ['填表人', body.assessor],
+      ['身高(cm)', body.height_cm],
+      ['体重(kg)', body.weight_kg],
+      ['睡眠状况', body.sleep_quality],
+      ['锻炼频次', body.weekly_exercise_freq],
+      ['既往史', body.past_medical_history],
+      ['备注', body.notes]
+    ], function () {
+      put('/api/health-assessments/' + hid, body).then(function (res) {
+        if (res.error) { showMsg('health-msg', res.error, true); return; }
+        closeConfirmModal();
+        showMsg('health-msg', res.message);
+        loadHealthPage();
+      });
     });
   });
 
@@ -572,6 +665,8 @@
   document.getElementById('usage-date').value = today;
 
   function fillHealthForm(data) {
+    document.querySelectorAll('input[name^="ha-"]').forEach(function (el) { if (el.type === 'radio') el.checked = false; });
+    document.querySelectorAll('input[name="health-exercise-method"], input[name="health-need"]').forEach(function (el) { el.checked = false; });
     document.getElementById('health-id').value = data.id || '';
     document.getElementById('health-customer').value = data.customer_id || '';
     document.getElementById('health-date').value = (data.assessment_date || '').slice(0, 10);
