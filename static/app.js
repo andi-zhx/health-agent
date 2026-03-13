@@ -162,6 +162,7 @@
 
   var pendingAction = null;
   var customerEditSnapshot = null;
+  var selectedHealthDetailId = '';
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -252,14 +253,48 @@
     });
   }
 
+  function renderHealthDetail(data) {
+    var box = document.getElementById('health-detail');
+    if (!box) return;
+    if (!data || !data.id) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+      selectedHealthDetailId = '';
+      return;
+    }
+    selectedHealthDetailId = String(data.id);
+    var rows = [
+      ['客户', data.customer_name], ['日期', data.assessment_date], ['填表人', data.assessor], ['年龄', data.age],
+      ['身高(cm)', data.height_cm], ['体重(kg)', data.weight_kg], ['地址', data.address], ['既往史', data.past_medical_history],
+      ['家族史', data.family_history], ['过敏史', data.allergy_history], ['过敏详情', data.allergy_details], ['吸烟情况', data.smoking_status],
+      ['烟龄', data.smoking_years], ['支/日', data.cigarettes_per_day], ['饮酒情况', data.drinking_status], ['饮酒年限', data.drinking_years],
+      ['近一月疲劳', data.fatigue_last_month], ['睡眠状况', data.sleep_quality], ['睡眠时长', data.sleep_hours], ['近半年血压', data.blood_pressure_test],
+      ['近半年血脂', data.blood_lipid_test], ['慢性疼痛', data.chronic_pain], ['疼痛描述', data.pain_details],
+      ['运动方式', (data.exercise_methods || []).join('、')], ['每周锻炼频次', data.weekly_exercise_freq],
+      ['健康需求', (data.health_needs || []).join('、')], ['备注', data.notes]
+    ];
+    box.innerHTML = '<h3 style="margin-top:0">档案详细信息</h3>' + rows.map(function (row) {
+      return '<div><strong>' + escapeHtml(row[0]) + '：</strong>' + escapeHtml(row[1] || '-') + '</div>';
+    }).join('');
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function loadHealthPage() {
     fillCustomerSelect('health-customer');
     var q = (document.getElementById('health-search').value || '').trim();
     get('/api/health-assessments' + (q ? '?search=' + encodeURIComponent(q) : '')).then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = toList(list).map(function (h) {
-        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td><td><button class="btn btn-small btn-primary" data-health-edit="' + h.id + '">编辑</button></td></tr>';
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td><td><button class="btn btn-small btn-secondary" data-health-detail="' + h.id + '">详细信息</button> <button class="btn btn-small btn-primary" data-health-edit="' + h.id + '">编辑</button></td></tr>';
       }).join('');
+      tbody.querySelectorAll('[data-health-detail]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          get('/api/health-assessments/' + btn.dataset.healthDetail).then(function (data) {
+            renderHealthDetail(data || {});
+          });
+        });
+      });
       tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () {
           get('/api/health-assessments/' + btn.dataset.healthEdit).then(function (data) {
@@ -267,6 +302,16 @@
           });
         });
       });
+      if (selectedHealthDetailId) {
+        var exists = toList(list).some(function (item) { return String(item.id) === selectedHealthDetailId; });
+        if (exists) {
+          get('/api/health-assessments/' + selectedHealthDetailId).then(function (data) {
+            renderHealthDetail(data || {});
+          });
+        } else {
+          renderHealthDetail(null);
+        }
+      }
     });
   }
 
@@ -466,27 +511,51 @@
       post('/api/health-assessments', body).then(function (res) {
         if (res.error) { showMsg('health-msg', res.error, true); return; }
         showMsg('health-msg', res.message);
+        fillHealthForm({});
         loadHealthPage();
       });
       return;
     }
 
-    openConfirmModal('确认修改健康档案', [
+    var confirmRows = [
       ['客户', selectedCustomerName()],
       ['日期', body.assessment_date],
       ['填表人', body.assessor],
+      ['年龄', body.age],
       ['身高(cm)', body.height_cm],
       ['体重(kg)', body.weight_kg],
-      ['睡眠状况', body.sleep_quality],
-      ['锻炼频次', body.weekly_exercise_freq],
+      ['地址', body.address],
       ['既往史', body.past_medical_history],
+      ['家族史', body.family_history],
+      ['过敏史', body.allergy_history],
+      ['过敏详情', body.allergy_details],
+      ['吸烟情况', body.smoking_status],
+      ['烟龄', body.smoking_years],
+      ['支/日', body.cigarettes_per_day],
+      ['饮酒情况', body.drinking_status],
+      ['饮酒年限', body.drinking_years],
+      ['近一月疲劳', body.fatigue_last_month],
+      ['睡眠状况', body.sleep_quality],
+      ['睡眠时长', body.sleep_hours],
+      ['近半年血压', body.blood_pressure_test],
+      ['近半年血脂', body.blood_lipid_test],
+      ['慢性疼痛', body.chronic_pain],
+      ['疼痛描述', body.pain_details],
+      ['运动方式', (body.exercise_methods || []).join('、')],
+      ['锻炼频次', body.weekly_exercise_freq],
+      ['健康需求', (body.health_needs || []).join('、')],
       ['备注', body.notes]
-    ], function () {
+    ];
+
+    openConfirmModal('请确认修改后的健康档案信息', confirmRows, function () {
       put('/api/health-assessments/' + hid, body).then(function (res) {
         if (res.error) { showMsg('health-msg', res.error, true); return; }
         closeConfirmModal();
         showMsg('health-msg', res.message);
         loadHealthPage();
+        get('/api/health-assessments/' + hid).then(function (data) {
+          renderHealthDetail(data || {});
+        });
       });
     });
   });
@@ -669,7 +738,7 @@
     document.querySelectorAll('input[name="health-exercise-method"], input[name="health-need"]').forEach(function (el) { el.checked = false; });
     document.getElementById('health-id').value = data.id || '';
     document.getElementById('health-customer').value = data.customer_id || '';
-    document.getElementById('health-date').value = (data.assessment_date || '').slice(0, 10);
+    document.getElementById('health-date').value = (data.assessment_date || today || '').slice(0, 10);
     document.getElementById('ha-assessor').value = data.assessor || '';
     document.getElementById('ha-age').value = data.age || '';
     document.getElementById('ha-height-cm').value = data.height_cm || '';
@@ -701,6 +770,7 @@
       });
     });
     window.scrollTo(0, 0);
+    showMsg('health-msg', '', false);
   }
 
   showPage('home');
