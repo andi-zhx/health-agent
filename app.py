@@ -156,6 +156,29 @@ def decode_multi_value(value):
         return []
 
 
+
+PROJECT_EQUIPMENT_MAP = {
+    '听力测试': '听力耳机',
+    '高压氧仓': '高压氧仓',
+    '艾灸': '艾灸',
+    '按摩': '按摩机',
+}
+
+
+def generate_time_slots(start='08:30', end='16:00', interval_minutes=15):
+    slots = []
+    t = datetime.strptime(start, '%H:%M')
+    end_t = datetime.strptime(end, '%H:%M')
+    while t < end_t:
+        nxt = t + timedelta(minutes=interval_minutes)
+        slots.append((t.strftime('%H:%M'), nxt.strftime('%H:%M')))
+        t = nxt
+    return slots
+
+
+def get_project_required_equipment_name(project_name):
+    return PROJECT_EQUIPMENT_MAP.get(project_name)
+
 HEALTH_ASSESSMENT_ALLOWED_VALUES = {
     'allergy_history': {'无', '有'},
     'smoking_status': {'无', '有'},
@@ -578,6 +601,38 @@ def init_db():
         if not c.fetchone():
             c.execute(
                 'INSERT INTO service_projects (name, category, status, description) VALUES (?,?,?,?)',
+                row,
+            )
+
+
+    required_equipment_seeds = [
+        ('听力耳机', '专用设备', 'HT-001', 'D区101室', 'available', '听力测试专用设备'),
+        ('高压氧仓', '专用设备', 'HBOT-001', 'D区102室', 'available', '高压氧服务设备'),
+        ('艾灸', '专用设备', 'MOXA-001', 'D区103室', 'available', '艾灸服务设备'),
+        ('按摩机', '专用设备', 'MASS-001', 'D区104室', 'available', '按摩服务设备'),
+    ]
+    for row in required_equipment_seeds:
+        c.execute('SELECT id FROM equipment WHERE name=?', (row[0],))
+        if not c.fetchone():
+            c.execute(
+                'INSERT INTO equipment (name, type, model, location, status, description) VALUES (?,?,?,?,?,?)',
+                row,
+            )
+
+    required_project_seeds = [
+        ('听力测试', '理疗', 30, 1, '专用设备', 0, 'enabled', '听力测试服务项目'),
+        ('高压氧仓', '理疗', 60, 1, '专用设备', 0, 'enabled', '高压氧仓服务项目'),
+        ('艾灸', '中医', 45, 1, '专用设备', 0, 'enabled', '艾灸服务项目'),
+        ('按摩', '理疗', 45, 1, '专用设备', 0, 'enabled', '按摩服务项目'),
+    ]
+    for row in required_project_seeds:
+        c.execute('SELECT id FROM therapy_projects WHERE name=?', (row[0],))
+        if not c.fetchone():
+            c.execute(
+                '''
+                INSERT INTO therapy_projects (name, category, duration_minutes, need_equipment, equipment_type, price, status, description)
+                VALUES (?,?,?,?,?,?,?,?)
+                ''',
                 row,
             )
 
@@ -1075,9 +1130,20 @@ def api_appointment_create():
     if not project:
         conn.close()
         return jsonify({'error': '项目不存在'}), 400
-    if project['need_equipment'] and not d.get('equipment_id'):
+    required_equipment_name = get_project_required_equipment_name(project['name'])
+    if required_equipment_name and not d.get('equipment_id'):
         conn.close()
-        return jsonify({'error': '该项目需要设备'}), 400
+        return jsonify({'error': '该项目需要指定设备'}), 400
+
+    if d.get('equipment_id'):
+        c.execute('SELECT id, name, status FROM equipment WHERE id=?', (d.get('equipment_id'),))
+        equipment = c.fetchone()
+        if not equipment or equipment['status'] != 'available':
+            conn.close()
+            return jsonify({'error': '设备不可用'}), 400
+        if required_equipment_name and equipment['name'] != required_equipment_name:
+            conn.close()
+            return jsonify({'error': '所选设备与项目不匹配'}), 400
 
     c.execute(f"SELECT COUNT(*) as n FROM appointments WHERE customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
               (d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
@@ -1112,22 +1178,59 @@ def api_appointment_create():
 @app.route('/api/appointments/free-slots', methods=['GET'])
 def api_appointments_free_slots():
     date = request.args.get('date')
+    project_id = request.args.get('project_id', type=int)
     if not date:
         return jsonify({'error': '缺少 date'}), 400
-    slots = [('09:00', '10:00'), ('10:00', '11:00'), ('11:00', '12:00'), ('14:00', '15:00'), ('15:00', '16:00'), ('16:00', '17:00')]
+    if not project_id:
+        return jsonify({'error': '缺少 project_id'}), 400
+
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) as n FROM equipment WHERE status='available'")
-    total_eq = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM staff WHERE status='available'")
-    total_staff = c.fetchone()['n']
+    c.execute('SELECT id, name FROM therapy_projects WHERE id=?', (project_id,))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '项目不存在'}), 404
+
+    required_equipment_name = get_project_required_equipment_name(project['name'])
+    available_equipment = []
+    if required_equipment_name:
+        c.execute("SELECT id, name FROM equipment WHERE status='available' AND name=? ORDER BY name", (required_equipment_name,))
+        available_equipment = row_list(c.fetchall())
+
+    slots = generate_time_slots('08:30', '16:00', 15)
     result = []
     for st, et in slots:
-        c.execute(f"SELECT COUNT(*) as n FROM appointments WHERE appointment_date=? AND status='scheduled' AND {overlap_condition()} AND equipment_id IS NOT NULL", (date, et, st))
-        used_eq = c.fetchone()['n']
-        c.execute(f"SELECT COUNT(DISTINCT staff_id) as n FROM appointments WHERE appointment_date=? AND status='scheduled' AND {overlap_condition()} AND staff_id IS NOT NULL", (date, et, st))
-        used_staff = c.fetchone()['n']
-        result.append({'start_time': st, 'end_time': et, 'remaining_equipment': max(total_eq - used_eq, 0), 'available_staff_count': max(total_staff - used_staff, 0)})
+        free_equipment = []
+        if available_equipment:
+            for equipment in available_equipment:
+                c.execute(
+                    f"SELECT COUNT(*) as n FROM appointments WHERE appointment_date=? AND status='scheduled' AND equipment_id=? AND {overlap_condition()}",
+                    (date, equipment['id'], et, st),
+                )
+                if c.fetchone()['n'] == 0:
+                    free_equipment.append({'id': equipment['id'], 'name': equipment['name']})
+
+        c.execute(
+            f"SELECT staff_id FROM appointments WHERE appointment_date=? AND status='scheduled' AND staff_id IS NOT NULL AND {overlap_condition()}",
+            (date, et, st),
+        )
+        busy_staff_ids = {r['staff_id'] for r in c.fetchall()}
+
+        if busy_staff_ids:
+            ph = ','.join('?' * len(busy_staff_ids))
+            c.execute(f"SELECT COUNT(*) as n FROM staff WHERE status='available' AND id NOT IN ({ph})", tuple(busy_staff_ids))
+        else:
+            c.execute("SELECT COUNT(*) as n FROM staff WHERE status='available'")
+        available_staff_count = c.fetchone()['n']
+
+        result.append({
+            'start_time': st,
+            'end_time': et,
+            'available_staff_count': max(available_staff_count, 0),
+            'available_equipment': free_equipment,
+        })
+
     conn.close()
     return jsonify(result)
 
@@ -1166,6 +1269,83 @@ def api_appointments_available_options():
     conn.close()
     return jsonify({'project': dict(project), 'available_equipment': avail_equipment, 'available_staff': avail_staff})
 
+
+
+
+@app.route('/api/appointments/<int:aid>', methods=['PUT'])
+def api_appointment_update(aid):
+    d = request.json or {}
+    if not all(d.get(k) for k in ('customer_id', 'project_id', 'appointment_date', 'start_time', 'end_time')):
+        return jsonify({'error': '缺少必填字段'}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT id FROM appointments WHERE id=?', (aid,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': '预约记录不存在'}), 404
+
+    c.execute('SELECT * FROM therapy_projects WHERE id=?', (d.get('project_id'),))
+    project = c.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': '项目不存在'}), 400
+
+    required_equipment_name = get_project_required_equipment_name(project['name'])
+    if required_equipment_name and not d.get('equipment_id'):
+        conn.close()
+        return jsonify({'error': '该项目需要指定设备'}), 400
+
+    if d.get('equipment_id'):
+        c.execute('SELECT id, name, status FROM equipment WHERE id=?', (d.get('equipment_id'),))
+        equipment = c.fetchone()
+        if not equipment or equipment['status'] != 'available':
+            conn.close()
+            return jsonify({'error': '设备不可用'}), 400
+        if required_equipment_name and equipment['name'] != required_equipment_name:
+            conn.close()
+            return jsonify({'error': '所选设备与项目不匹配'}), 400
+
+    c.execute(
+        f"SELECT COUNT(*) as n FROM appointments WHERE id<>? AND customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+        (aid, d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')),
+    )
+    if c.fetchone()['n'] > 0:
+        conn.close()
+        return jsonify({'error': '同一客户同一时段不能重复预约'}), 400
+
+    if d.get('equipment_id'):
+        c.execute(
+            f"SELECT COUNT(*) as n FROM appointments WHERE id<>? AND equipment_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+            (aid, d.get('equipment_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')),
+        )
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该时段设备已被预约'}), 400
+
+    if d.get('staff_id'):
+        c.execute(
+            f"SELECT COUNT(*) as n FROM appointments WHERE id<>? AND staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}",
+            (aid, d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')),
+        )
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该服务人员该时段已被预约'}), 400
+
+    c.execute(
+        '''
+        UPDATE appointments
+        SET customer_id=?, project_id=?, equipment_id=?, staff_id=?, appointment_date=?, start_time=?, end_time=?, status=?, notes=?, updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        ''',
+        (
+            d.get('customer_id'), d.get('project_id'), d.get('equipment_id'), d.get('staff_id'),
+            d.get('appointment_date'), d.get('start_time'), d.get('end_time'), d.get('status', 'scheduled'), d.get('notes'), aid,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '预约修改成功'})
 
 @app.route('/api/appointments/<int:aid>/cancel', methods=['POST'])
 def api_appointment_cancel(aid):

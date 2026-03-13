@@ -126,11 +126,12 @@
   }
 
   function fillEquipmentSelect(selId) {
-    get('/api/equipment').then(function (list) {
+    return get('/api/equipment').then(function (list) {
+      appointmentEquipment = toList(list);
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
-      sel.innerHTML = '<option value="">请选择设备</option>' + toList(list).map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+      sel.innerHTML = '<option value="">请选择设备</option>' + appointmentEquipment.map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -140,11 +141,16 @@
     if (scene) {
       path += '?scene=' + encodeURIComponent(scene);
     }
-    get(path).then(function (list) {
+    return get(path).then(function (list) {
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
-      sel.innerHTML = '<option value="">请选择项目</option>' + toList(list).map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join('');
+      var projects = toList(list);
+      if (selId === 'apt-project') {
+        projects = projects.filter(function (p) { return projectEquipmentMap[p.name]; });
+        appointmentProjects = projects;
+      }
+      sel.innerHTML = '<option value="">请选择项目</option>' + projects.map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -164,6 +170,10 @@
   var customerEditSnapshot = null;
   var selectedHealthDetailId = '';
   var editingHealthSnapshot = null;
+  var appointmentEditId = null;
+  var appointmentProjects = [];
+  var appointmentEquipment = [];
+  var projectEquipmentMap = { '听力测试': '听力耳机', '高压氧仓': '高压氧仓', '艾灸': '艾灸', '按摩': '按摩机' };
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -329,20 +339,65 @@
     });
   }
 
+
+  function setAppointmentEditMode(record) {
+    var bar = document.getElementById('apt-edit-actions');
+    if (record && record.id) {
+      appointmentEditId = record.id;
+      if (bar) bar.classList.remove('hide');
+      document.getElementById('btn-apt-save').textContent = '保存修改';
+      document.getElementById('btn-apt-mark-cancel').textContent = '改为取消预约';
+    } else {
+      appointmentEditId = null;
+      if (bar) bar.classList.add('hide');
+      document.getElementById('btn-apt-save').textContent = '保存预约';
+    }
+  }
+
+  function fillAppointmentEquipmentByProject() {
+    var projectId = document.getElementById('apt-project').value;
+    var sel = document.getElementById('apt-equipment');
+    var project = appointmentProjects.find(function (p) { return String(p.id) === String(projectId); });
+    var requiredName = project ? projectEquipmentMap[project.name] : '';
+    var options = appointmentEquipment.filter(function (e) {
+      return !requiredName || e.name === requiredName;
+    });
+    sel.innerHTML = '<option value="">请选择设备</option>' + options.map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+  }
+
+  function applySlotValue(value) {
+    var t = (value || '').split('|');
+    document.getElementById('apt-start').value = t[0] || '';
+    document.getElementById('apt-end').value = t[1] || '';
+  }
+
   function loadAppointmentsPage() {
+    setAppointmentEditMode(null);
     fillCustomerSelect('apt-customer');
-    fillProjectSelect('apt-project', true);
-    fillEquipmentSelect('apt-equipment');
+    Promise.all([fillProjectSelect('apt-project', true), fillEquipmentSelect('apt-equipment')]).then(function () {
+      fillAppointmentEquipmentByProject();
+    });
     fillStaffSelect('apt-staff');
     get('/api/appointments').then(function (list) {
       var tbody = document.getElementById('apt-list');
       tbody.innerHTML = toList(list).map(function (a) {
-        var cancelBtn = a.status === 'scheduled' ? '<button class="btn btn-small btn-danger" data-cancel="' + a.id + '">取消</button>' : '';
-        return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.project_name || '-') + '</td><td>' + (a.equipment_name || '-') + '</td><td>' + (a.staff_name || '-') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.status || '') + '</td><td>' + cancelBtn + '</td></tr>';
+        return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.project_name || '-') + '</td><td>' + (a.equipment_name || '-') + '</td><td>' + (a.staff_name || '-') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.status || '') + '</td><td><button class="btn btn-small btn-secondary" data-apt-edit="' + a.id + '">编辑</button></td></tr>';
       }).join('');
-      tbody.querySelectorAll('[data-cancel]').forEach(function (btn) {
+      tbody.querySelectorAll('[data-apt-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          post('/api/appointments/' + btn.dataset.cancel + '/cancel').then(function () { loadAppointmentsPage(); });
+          var item = toList(list).find(function (x) { return String(x.id) === String(btn.dataset.aptEdit); });
+          if (!item) return;
+          setAppointmentEditMode(item);
+          document.getElementById('apt-customer').value = item.customer_id || '';
+          document.getElementById('apt-project').value = item.project_id || '';
+          fillAppointmentEquipmentByProject();
+          document.getElementById('apt-equipment').value = item.equipment_id || '';
+          document.getElementById('apt-staff').value = item.staff_id || '';
+          document.getElementById('apt-date').value = item.appointment_date || '';
+          document.getElementById('apt-notes').value = item.notes || '';
+          document.getElementById('apt-slot').value = (item.start_time || '') + '|' + (item.end_time || '');
+          applySlotValue(document.getElementById('apt-slot').value);
+          checkAppointmentAvailability();
         });
       });
     });
@@ -365,37 +420,33 @@
   function checkAppointmentAvailability() {
     var date = document.getElementById('apt-date').value;
     var projectId = document.getElementById('apt-project').value;
+    var equipmentId = document.getElementById('apt-equipment').value;
     if (!date || !projectId) {
       document.getElementById('apt-availability').textContent = '请先选择日期和项目';
       return;
     }
     get('/api/appointments/free-slots?date=' + encodeURIComponent(date) + '&project_id=' + encodeURIComponent(projectId)).then(function (res) {
       if (res.error) { document.getElementById('apt-availability').textContent = res.error; return; }
-      document.getElementById('apt-availability').innerHTML = toList(res).map(function (s) {
-        return '<button class="btn btn-small btn-secondary" data-slot="' + s.start_time + ',' + s.end_time + '">' + s.start_time + '-' + s.end_time + ' (设备余量' + s.remaining_equipment + ' 人员' + s.available_staff_count + ')</button>';
-      }).join(' ');
-      document.querySelectorAll('[data-slot]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var t = b.dataset.slot.split(',');
-          document.getElementById('apt-start').value = t[0];
-          document.getElementById('apt-end').value = t[1];
-        });
+      var slotSel = document.getElementById('apt-slot');
+      var rows = toList(res).filter(function (s) {
+        if (!equipmentId) return (s.available_equipment || []).length > 0;
+        return (s.available_equipment || []).some(function (e) { return String(e.id) === String(equipmentId); });
       });
-    });
-  }
-
-  function loadAvailableOptions() {
-    var date = document.getElementById('apt-date').value;
-    var start = document.getElementById('apt-start').value;
-    var end = document.getElementById('apt-end').value;
-    var projectId = document.getElementById('apt-project').value;
-    if (!date || !start || !end || !projectId) { showMsg('apt-msg', '请先选择项目和时段', true); return; }
-    get('/api/appointments/available-options?date=' + encodeURIComponent(date) + '&start_time=' + encodeURIComponent(start) + '&end_time=' + encodeURIComponent(end) + '&project_id=' + encodeURIComponent(projectId)).then(function (res) {
-      if (res.error) { showMsg('apt-msg', res.error, true); return; }
-      var eqSel = document.getElementById('apt-equipment');
-      var stSel = document.getElementById('apt-staff');
-      eqSel.innerHTML = '<option value="">不指定设备</option>' + (res.available_equipment || []).map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
-      stSel.innerHTML = '<option value="">不指定人员</option>' + (res.available_staff || []).map(function (s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('');
+      slotSel.innerHTML = '<option value="">请选择可预约时段</option>' + rows.map(function (s) {
+        var names = (s.available_equipment || []).map(function (e) { return e.name; }).join('、') || '无可用设备';
+        return '<option value="' + s.start_time + '|' + s.end_time + '">' + s.start_time + '-' + s.end_time + '（设备：' + names + '）</option>';
+      }).join('');
+      document.getElementById('apt-availability').innerHTML = rows.map(function (s) {
+        var names = (s.available_equipment || []).map(function (e) { return e.name; }).join('、') || '无可用设备';
+        return '<div>' + s.start_time + '-' + s.end_time + '：可用设备 ' + names + '；可用人员 ' + (s.available_staff_count || 0) + '</div>';
+      }).join('');
+      if (appointmentEditId) {
+        var keep = document.getElementById('apt-start').value + '|' + document.getElementById('apt-end').value;
+        if (keep && rows.some(function (r) { return (r.start_time + '|' + r.end_time) === keep; })) {
+          slotSel.value = keep;
+        }
+      }
+      applySlotValue(slotSel.value);
     });
   }
 
@@ -587,7 +638,43 @@
   });
 
   document.getElementById('btn-apt-check').addEventListener('click', checkAppointmentAvailability);
-  document.getElementById('btn-apt-options').addEventListener('click', loadAvailableOptions);
+
+
+  document.getElementById('apt-project').addEventListener('change', function () {
+    fillAppointmentEquipmentByProject();
+    checkAppointmentAvailability();
+  });
+  document.getElementById('apt-equipment').addEventListener('change', checkAppointmentAvailability);
+  document.getElementById('apt-date').addEventListener('change', checkAppointmentAvailability);
+  document.getElementById('apt-slot').addEventListener('change', function () { applySlotValue(this.value); });
+  document.getElementById('btn-apt-cancel-edit').addEventListener('click', function () {
+    setAppointmentEditMode(null);
+    document.getElementById('apt-slot').value = '';
+    applySlotValue('');
+    showMsg('apt-msg', '已退出编辑');
+  });
+  document.getElementById('btn-apt-mark-cancel').addEventListener('click', function () {
+    if (!appointmentEditId) return;
+    var body = {
+      customer_id: document.getElementById('apt-customer').value,
+      project_id: document.getElementById('apt-project').value,
+      equipment_id: document.getElementById('apt-equipment').value,
+      staff_id: document.getElementById('apt-staff').value,
+      appointment_date: document.getElementById('apt-date').value,
+      start_time: document.getElementById('apt-start').value,
+      end_time: document.getElementById('apt-end').value,
+      notes: document.getElementById('apt-notes').value,
+      status: 'cancelled'
+    };
+    openConfirmModal('确认修改预约状态', [['状态', '取消预约']], function () {
+      put('/api/appointments/' + appointmentEditId, body).then(function (res) {
+        if (res.error) { showMsg('apt-msg', res.error, true); return; }
+        closeConfirmModal();
+        showMsg('apt-msg', '修改成功');
+        loadAppointmentsPage();
+      });
+    });
+  });
 
   document.getElementById('btn-apt-save').addEventListener('click', function () {
     var body = {
@@ -598,16 +685,28 @@
       appointment_date: document.getElementById('apt-date').value,
       start_time: document.getElementById('apt-start').value,
       end_time: document.getElementById('apt-end').value,
-      notes: document.getElementById('apt-notes').value
+      notes: document.getElementById('apt-notes').value,
+      status: 'scheduled'
     };
-    if (!body.customer_id || !body.project_id || !body.appointment_date || !body.start_time || !body.end_time) {
+    if (!body.customer_id || !body.project_id || !body.appointment_date || !body.start_time || !body.end_time || !body.equipment_id) {
       showMsg('apt-msg', '请填写必填项', true);
       return;
     }
-    post('/api/appointments', body).then(function (res) {
-      if (res.error) { showMsg('apt-msg', res.error, true); return; }
-      showMsg('apt-msg', res.message);
-      loadAppointmentsPage();
+    var rows = [
+      ['客户', document.getElementById('apt-customer').selectedOptions[0] ? document.getElementById('apt-customer').selectedOptions[0].text : ''],
+      ['项目', document.getElementById('apt-project').selectedOptions[0] ? document.getElementById('apt-project').selectedOptions[0].text : ''],
+      ['设备', document.getElementById('apt-equipment').selectedOptions[0] ? document.getElementById('apt-equipment').selectedOptions[0].text : ''],
+      ['人员', document.getElementById('apt-staff').selectedOptions[0] ? document.getElementById('apt-staff').selectedOptions[0].text : ''],
+      ['预约时间', body.appointment_date + ' ' + body.start_time + '-' + body.end_time]
+    ];
+    openConfirmModal(appointmentEditId ? '确认修改预约后保存记录' : '确认预约信息', rows, function () {
+      var req = appointmentEditId ? put('/api/appointments/' + appointmentEditId, body) : post('/api/appointments', body);
+      req.then(function (res) {
+        if (res.error) { showMsg('apt-msg', res.error, true); return; }
+        closeConfirmModal();
+        showMsg('apt-msg', appointmentEditId ? '预约修改成功' : res.message);
+        loadAppointmentsPage();
+      });
     });
   });
 
