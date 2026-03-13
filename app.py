@@ -635,7 +635,7 @@ def api_customer_get(cid):
         return jsonify({'error': '客户不存在'}), 404
     cust = dict(row)
     c.execute(
-        'SELECT a.*, e.name as equipment_name FROM appointments a JOIN equipment e ON a.equipment_id=e.id WHERE a.customer_id=? ORDER BY a.appointment_date DESC, a.start_time DESC',
+        'SELECT a.*, e.name as equipment_name FROM appointments a LEFT JOIN equipment e ON a.equipment_id=e.id WHERE a.customer_id=? ORDER BY a.appointment_date DESC, a.start_time DESC',
         (cid,)
     )
     cust['appointments'] = row_list(c.fetchall())
@@ -1460,7 +1460,7 @@ def api_search():
 
     if kind in ('all', 'appointments'):
         c.execute('''SELECT a.*, c.name as customer_name, c.phone as customer_phone, e.name as equipment_name
-            FROM appointments a JOIN customers c ON a.customer_id=c.id JOIN equipment e ON a.equipment_id=e.id
+            FROM appointments a JOIN customers c ON a.customer_id=c.id LEFT JOIN equipment e ON a.equipment_id=e.id
             WHERE c.name LIKE ? OR c.id_card LIKE ? OR c.phone LIKE ? OR a.notes LIKE ?
             ORDER BY a.appointment_date DESC, a.start_time DESC LIMIT 100''', (like, like, like, like))
         result['appointments'] = row_list(c.fetchall())
