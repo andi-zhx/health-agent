@@ -1,8 +1,23 @@
 (function () {
   const API = '';
-  function get(url) { return fetch(API + url).then(function (r) { return r.json(); }); }
-  function post(url, body) { return fetch(API + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }); }
-  function put(url, body) { return fetch(API + url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }); }
+  function parseJsonResponse(r) {
+    return r.text().then(function (text) {
+      if (!text) return {};
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { error: '服务返回异常，请刷新后重试' };
+      }
+    });
+  }
+
+  function get(url) { return fetch(API + url).then(parseJsonResponse).catch(function () { return { error: '网络请求失败，请稍后重试' }; }); }
+  function post(url, body) { return fetch(API + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(parseJsonResponse).catch(function () { return { error: '网络请求失败，请稍后重试' }; }); }
+  function put(url, body) { return fetch(API + url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(parseJsonResponse).catch(function () { return { error: '网络请求失败，请稍后重试' }; }); }
+
+  function toList(data) {
+    return Array.isArray(data) ? data : [];
+  }
 
   function showPage(name) {
     document.querySelectorAll('.page').forEach(function (el) { el.classList.add('hide'); });
@@ -105,7 +120,7 @@
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
-      sel.innerHTML = '<option value="">请选择客户</option>' + (list || []).map(function (c) { return '<option value="' + c.id + '">' + c.name + ' ' + (c.phone || '') + '</option>'; }).join('');
+      sel.innerHTML = '<option value="">请选择客户</option>' + toList(list).map(function (c) { return '<option value="' + c.id + '">' + c.name + ' ' + (c.phone || '') + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -115,7 +130,7 @@
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
-      sel.innerHTML = '<option value="">请选择设备</option>' + (list || []).map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+      sel.innerHTML = '<option value="">请选择设备</option>' + toList(list).map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -129,7 +144,7 @@
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
-      sel.innerHTML = '<option value="">请选择项目</option>' + (list || []).map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join('');
+      sel.innerHTML = '<option value="">请选择项目</option>' + toList(list).map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -139,7 +154,7 @@
       var sel = document.getElementById(selId);
       if (!sel) return;
       var old = sel.value;
-      sel.innerHTML = '<option value="">不指定</option>' + (list || []).map(function (s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('');
+      sel.innerHTML = '<option value="">不指定</option>' + toList(list).map(function (s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('');
       if (old) sel.value = old;
     });
   }
@@ -148,7 +163,7 @@
     var q = document.getElementById('customer-search').value;
     get('/api/customers' + (q ? '?search=' + encodeURIComponent(q) : '')).then(function (list) {
       var tbody = document.getElementById('customer-list');
-      tbody.innerHTML = (list || []).map(function (c) {
+      tbody.innerHTML = toList(list).map(function (c) {
         return '<tr><td>' + c.name + '</td><td>' + (c.id_card || '') + '</td><td>' + (c.phone || '') + '</td><td><button class="btn btn-small btn-primary" data-edit="' + c.id + '">编辑</button></td></tr>';
       }).join('');
       tbody.querySelectorAll('[data-edit]').forEach(function (btn) {
@@ -208,7 +223,7 @@
     fillCustomerSelect('health-customer');
     get('/api/health-assessments').then(function (list) {
       var tbody = document.getElementById('health-list');
-      tbody.innerHTML = (list || []).map(function (h) {
+      tbody.innerHTML = toList(list).map(function (h) {
         return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
       }).join('');
       tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
@@ -228,7 +243,7 @@
     fillStaffSelect('apt-staff');
     get('/api/appointments').then(function (list) {
       var tbody = document.getElementById('apt-list');
-      tbody.innerHTML = (list || []).map(function (a) {
+      tbody.innerHTML = toList(list).map(function (a) {
         var cancelBtn = a.status === 'scheduled' ? '<button class="btn btn-small btn-danger" data-cancel="' + a.id + '">取消</button>' : '';
         return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.project_name || '-') + '</td><td>' + (a.equipment_name || '-') + '</td><td>' + (a.staff_name || '-') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.status || '') + '</td><td>' + cancelBtn + '</td></tr>';
       }).join('');
@@ -247,7 +262,7 @@
     document.getElementById('checkin-time').value = now.toISOString().slice(0, 16);
     get('/api/visit-checkins').then(function (list) {
       var tbody = document.getElementById('checkin-list');
-      tbody.innerHTML = (list || []).map(function (v) {
+      tbody.innerHTML = toList(list).map(function (v) {
         return '<tr><td>' + (v.customer_name || '') + '</td><td>' + (v.checkin_time || '') + '</td><td>' + (v.purpose || '-') + '</td><td>' + (v.notes || '-') + '</td></tr>';
       }).join('');
     });
@@ -263,7 +278,7 @@
     }
     get('/api/appointments/free-slots?date=' + encodeURIComponent(date) + '&project_id=' + encodeURIComponent(projectId)).then(function (res) {
       if (res.error) { document.getElementById('apt-availability').textContent = res.error; return; }
-      document.getElementById('apt-availability').innerHTML = (res || []).map(function (s) {
+      document.getElementById('apt-availability').innerHTML = toList(res).map(function (s) {
         return '<button class="btn btn-small btn-secondary" data-slot="' + s.start_time + ',' + s.end_time + '">' + s.start_time + '-' + s.end_time + ' (设备余量' + s.remaining_equipment + ' 人员' + s.available_staff_count + ')</button>';
       }).join(' ');
       document.querySelectorAll('[data-slot]').forEach(function (b) {
@@ -297,7 +312,7 @@
     fillStaffSelect('home-staff');
     get('/api/home-appointments').then(function (list) {
       var tbody = document.getElementById('home-list');
-      tbody.innerHTML = (list || []).map(function (a) {
+      tbody.innerHTML = toList(list).map(function (a) {
         return '<tr><td>' + (a.customer_name || '') + '</td><td>' + (a.project_name || '-') + '</td><td>' + (a.appointment_date || '') + '</td><td>' + (a.start_time || '') + '~' + (a.end_time || '') + '</td><td>' + (a.location || '-') + '</td><td>' + (a.staff_name || '-') + '</td><td>' + (a.status || '') + '</td></tr>';
       }).join('');
     });
@@ -308,7 +323,7 @@
     fillEquipmentSelect('usage-equipment');
     get('/api/equipment-usage').then(function (list) {
       var tbody = document.getElementById('usage-list');
-      tbody.innerHTML = (list || []).map(function (u) {
+      tbody.innerHTML = toList(list).map(function (u) {
         return '<tr><td>' + (u.customer_name || '') + '</td><td>' + (u.equipment_name || '') + '</td><td>' + (u.usage_date || '') + '</td><td>' + (u.duration_minutes || '-') + '</td><td>' + (u.operator || '-') + '</td></tr>';
       }).join('');
     });
