@@ -14,6 +14,13 @@ import logging
 from datetime import datetime
 from datetime import timedelta
 
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+except Exception:
+    tk = None
+    filedialog = None
+
 # 项目根目录（app.py 所在目录）
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
@@ -1650,6 +1657,25 @@ def api_equipment_usage_by_customer():
     return jsonify(row_list(rows))
 
 
+@app.route('/api/equipment-usage/service-stats', methods=['GET'])
+def api_equipment_usage_service_stats():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        SELECT COALESCE(p.name, '未分类项目') as project_name,
+               COUNT(a.id) as appointment_count
+        FROM appointments a
+        LEFT JOIN therapy_projects p ON a.project_id = p.id
+        WHERE a.status='scheduled'
+        GROUP BY COALESCE(p.name, '未分类项目')
+        ORDER BY appointment_count DESC, project_name ASC
+    ''')
+    items = row_list(c.fetchall())
+    conn.close()
+    total = sum((x.get('appointment_count') or 0) for x in items)
+    return jsonify({'items': items, 'total': total})
+
+
 # ========== 满意度 ==========
 @app.route('/api/satisfaction-surveys', methods=['GET'])
 def api_surveys_list():
@@ -1846,7 +1872,7 @@ def api_export_query_download():
     dataset = (request.args.get('dataset') or 'all').strip()
     customer_id = request.args.get('customer_id')
 
-    allowed_datasets = {'all', 'customers', 'health', 'appointments', 'checkins', 'usage', 'surveys'}
+    allowed_datasets = {'all', 'customers', 'health', 'appointments', 'usage', 'surveys'}
     if scope not in {'single', 'all'}:
         return jsonify({'error': '下载范围参数不合法'}), 400
     if dataset not in allowed_datasets:
@@ -1875,9 +1901,6 @@ def api_export_query_download():
             'appointments': ('预约记录', '''SELECT a.*, c.name as customer_name, c.phone as customer_phone, e.name as equipment_name
                 FROM appointments a JOIN customers c ON a.customer_id=c.id LEFT JOIN equipment e ON a.equipment_id=e.id
                 {where_clause} ORDER BY a.appointment_date DESC, a.start_time DESC'''),
-            'checkins': ('来访签到', '''SELECT v.*, c.name as customer_name, c.phone
-                FROM visit_checkins v JOIN customers c ON v.customer_id=c.id
-                {where_clause} ORDER BY v.checkin_time DESC'''),
             'usage': ('仪器使用', '''SELECT eu.*, c.name as customer_name, c.phone, e.name as equipment_name
                 FROM equipment_usage eu JOIN customers c ON eu.customer_id=c.id LEFT JOIN equipment e ON eu.equipment_id=e.id
                 {where_clause} ORDER BY eu.usage_date DESC'''),
@@ -1963,6 +1986,32 @@ def api_system_backup_path_set():
 
     set_setting_value('backup_directory', backup_directory)
     return jsonify({'message': '备份路径已保存', 'backup_directory': backup_directory})
+
+
+@app.route('/api/system/backup-path/select', methods=['POST'])
+def api_system_backup_path_select():
+    if tk is None or filedialog is None:
+        return jsonify({'error': '当前环境不支持本地路径选择框，请手动输入路径'}), 400
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        selected = filedialog.askdirectory(title='请选择数据库备份路径')
+        root.destroy()
+    except Exception as e:
+        return jsonify({'error': f'打开路径选择框失败: {e}'}), 500
+
+    if not selected:
+        return jsonify({'error': '未选择路径'}), 400
+
+    backup_directory = os.path.abspath(os.path.expanduser(selected))
+    try:
+        os.makedirs(backup_directory, exist_ok=True)
+    except Exception as e:
+        return jsonify({'error': f'备份路径不可用: {e}'}), 400
+
+    set_setting_value('backup_directory', backup_directory)
+    return jsonify({'message': '备份路径已更新', 'backup_directory': backup_directory})
 
 
 @app.route('/api/system/backup', methods=['POST'])
