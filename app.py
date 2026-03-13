@@ -20,7 +20,7 @@ app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
 
 DB_PATH = os.path.join(BASE_DIR, 'medical_system.db')
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'exports')
-BACKUP_FOLDER = os.path.join(BASE_DIR, 'backups')
+BACKUP_FOLDER = os.path.join(BASE_DIR, 'database_backups')
 LOG_FOLDER = os.path.join(BASE_DIR, 'logs')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
@@ -96,24 +96,12 @@ def load_projects_with_parallel_strategy(cursor, enabled_only=False, scene=None)
 
 
 def create_db_backup(backup_type='manual', notes=''):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS db_backups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            backup_file TEXT,
-            backup_time TEXT,
-            backup_type TEXT,
-            status TEXT,
-            notes TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    backup_dir = get_backup_directory()
+    os.makedirs(backup_dir, exist_ok=True)
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     fn = f'medical_system_{ts}.db'
-    fp = os.path.join(BACKUP_FOLDER, fn)
+    fp = os.path.join(backup_dir, fn)
     try:
         if os.path.exists(DB_PATH):
             shutil.copy2(DB_PATH, fp)
@@ -125,10 +113,10 @@ def create_db_backup(backup_type='manual', notes=''):
         conn = get_db()
         c = conn.cursor()
         c.execute('INSERT INTO db_backups (backup_file, backup_time, backup_type, status, notes) VALUES (?,?,?,?,?)',
-                  (fn, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), backup_type, status, notes or msg))
+                  (fp, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), backup_type, status, notes or msg))
         conn.commit()
         conn.close()
-        return {'filename': fn, 'status': status, 'message': msg}
+        return {'filename': fn, 'backup_file': fp, 'status': status, 'message': msg}
     except Exception as e:
         logging.exception('backup failed')
         return {'filename': fn, 'status': 'failed', 'message': str(e)}
@@ -136,6 +124,33 @@ def create_db_backup(backup_type='manual', notes=''):
 
 def overlap_condition():
     return '(start_time < ?) AND (end_time > ?)'
+
+
+def get_setting_value(key, default_value=''):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT setting_value FROM system_settings WHERE setting_key=?', (key,))
+    row = c.fetchone()
+    conn.close()
+    return row['setting_value'] if row else default_value
+
+
+def set_setting_value(key, value):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO system_settings (setting_key, setting_value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(setting_key) DO UPDATE SET
+            setting_value=excluded.setting_value,
+            updated_at=CURRENT_TIMESTAMP
+    ''', (key, value))
+    conn.commit()
+    conn.close()
+
+
+def get_backup_directory():
+    return get_setting_value('backup_directory', BACKUP_FOLDER)
 
 
 def parse_multi_value(value):
@@ -495,6 +510,18 @@ def init_db():
             notes TEXT
         )
     ''')
+
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS system_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    c.execute('INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)',
+              ('backup_directory', BACKUP_FOLDER))
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS satisfaction_surveys (
@@ -1915,8 +1942,41 @@ def api_export_usage():
     return jsonify({'filename': fn, 'download_url': '/api/download/' + fn})
 
 
+@app.route('/api/system/backup-path', methods=['GET'])
+def api_system_backup_path_get():
+    path = get_backup_directory()
+    return jsonify({'backup_directory': path})
+
+
+@app.route('/api/system/backup-path', methods=['POST'])
+def api_system_backup_path_set():
+    body = request.get_json(silent=True) or {}
+    backup_directory = (body.get('backup_directory') or '').strip()
+    if not backup_directory:
+        return jsonify({'error': '请先选择备份路径'}), 400
+
+    backup_directory = os.path.abspath(os.path.expanduser(backup_directory))
+    try:
+        os.makedirs(backup_directory, exist_ok=True)
+    except Exception as e:
+        return jsonify({'error': f'备份路径不可用: {e}'}), 400
+
+    set_setting_value('backup_directory', backup_directory)
+    return jsonify({'message': '备份路径已保存', 'backup_directory': backup_directory})
+
+
 @app.route('/api/system/backup', methods=['POST'])
 def api_system_backup():
+    body = request.get_json(silent=True) or {}
+    backup_directory = (body.get('backup_directory') or '').strip()
+    if backup_directory:
+        backup_directory = os.path.abspath(os.path.expanduser(backup_directory))
+        try:
+            os.makedirs(backup_directory, exist_ok=True)
+        except Exception as e:
+            return jsonify({'error': f'备份路径不可用: {e}'}), 400
+        set_setting_value('backup_directory', backup_directory)
+
     result = create_db_backup(backup_type='manual')
     code = 200 if result.get('status') == 'success' else 500
     return jsonify(result), code
