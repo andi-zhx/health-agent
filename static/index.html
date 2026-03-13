@@ -240,9 +240,8 @@
           <div class="form-row">
             <label>预约时间</label>
             <input type="date" id="apt-date">
-            <select id="apt-slot"><option value="">请选择可预约时段</option></select>
-            <input type="hidden" id="apt-start">
-            <input type="hidden" id="apt-end">
+            <label>开始</label><select id="apt-start"><option value="">请选择开始时间</option></select>
+            <label>结束</label><select id="apt-end"><option value="">请选择结束时间</option></select>
             <label>备注</label>
             <input type="text" id="apt-notes" placeholder="可选">
           </div>
@@ -267,8 +266,12 @@
             <label>项目</label><select id="home-project"></select>
             <label>人员</label><select id="home-staff"></select>
             <label>日期</label><input type="date" id="home-date">
-            <label>开始</label><input type="time" id="home-start">
-            <label>结束</label><input type="time" id="home-end">
+          </div>
+          <div class="form-row" style="flex-wrap:nowrap">
+            <label>开始时间</label><input type="time" id="home-start" min="08:30" max="16:00" step="900">
+          </div>
+          <div class="form-row" style="flex-wrap:nowrap">
+            <label>结束时间</label><input type="time" id="home-end" min="08:30" max="16:00" step="900">
           </div>
           <div class="form-row">
             <label>地点</label><input type="text" id="home-location" style="flex:1">
@@ -278,9 +281,10 @@
           <div class="form-row">
             <label>备注</label><input type="text" id="home-notes" style="flex:1">
             <button class="btn btn-primary" id="btn-home-save">保存上门预约</button>
+            <button class="btn btn-secondary hide" id="btn-home-cancel-edit">退出编辑</button>
           </div>
           <div id="home-msg"></div>
-          <table><thead><tr><th>客户</th><th>项目</th><th>日期</th><th>时间</th><th>地点</th><th>人员</th><th>状态</th></tr></thead><tbody id="home-list"></tbody></table>
+          <table><thead><tr><th>客户</th><th>项目</th><th>日期</th><th>时间</th><th>地点</th><th>人员</th><th>状态</th><th>操作</th></tr></thead><tbody id="home-list"></tbody></table>
         </div>
       </div>
       <div id="page-checkins" class="page hide">

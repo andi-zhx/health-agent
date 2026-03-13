@@ -175,6 +175,12 @@ def generate_time_slots(start='08:30', end='16:00', interval_minutes=15):
         t = nxt
     return slots
 
+def is_valid_home_time_range(start_time, end_time):
+    if not start_time or not end_time:
+        return False
+    return '08:30' <= start_time < end_time <= '16:00'
+
+
 
 def get_project_required_equipment_name(project_name):
     return PROJECT_EQUIPMENT_MAP.get(project_name)
@@ -1387,6 +1393,8 @@ def api_home_appointments_create():
     d = request.json or {}
     if not all(d.get(k) for k in ('customer_id', 'project_id', 'appointment_date', 'start_time', 'end_time', 'location')):
         return jsonify({'error': '缺少必填字段'}), 400
+    if not is_valid_home_time_range(d.get('start_time'), d.get('end_time')):
+        return jsonify({'error': '上门预约时间需在08:30-16:00且结束时间晚于开始时间'}), 400
     conn = get_db()
     c = conn.cursor()
 
@@ -1401,6 +1409,10 @@ def api_home_appointments_create():
     if not project:
         conn.close()
         return jsonify({'error': '上门项目不存在'}), 404
+    allowed_home_projects = {'上门康复护理', '中医养生咨询', '康复训练指导', '血糖测试', '按摩'}
+    if project['name'] not in allowed_home_projects:
+        conn.close()
+        return jsonify({'error': '该项目不支持上门预约'}), 400
 
     staff = None
     if d.get('staff_id'):
@@ -1454,6 +1466,10 @@ def api_home_appointments_cancel(hid):
 @app.route('/api/home-appointments/<int:hid>', methods=['PUT'])
 def api_home_appointments_update(hid):
     d = request.json or {}
+    if not all(d.get(k) for k in ('customer_id', 'project_id', 'appointment_date', 'start_time', 'end_time', 'location')):
+        return jsonify({'error': '缺少必填字段'}), 400
+    if not is_valid_home_time_range(d.get('start_time'), d.get('end_time')):
+        return jsonify({'error': '上门预约时间需在08:30-16:00且结束时间晚于开始时间'}), 400
     conn = get_db()
     c = conn.cursor()
 
@@ -1473,6 +1489,10 @@ def api_home_appointments_update(hid):
     if not project:
         conn.close()
         return jsonify({'error': '上门项目不存在'}), 404
+    allowed_home_projects = {'上门康复护理', '中医养生咨询', '康复训练指导', '血糖测试', '按摩'}
+    if project['name'] not in allowed_home_projects:
+        conn.close()
+        return jsonify({'error': '该项目不支持上门预约'}), 400
 
     staff = None
     if d.get('staff_id'):
@@ -1481,6 +1501,16 @@ def api_home_appointments_update(hid):
         if not staff:
             conn.close()
             return jsonify({'error': '服务人员不存在'}), 404
+
+    c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE id<>? AND customer_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (hid, d.get('customer_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+    if c.fetchone()['n'] > 0:
+        conn.close()
+        return jsonify({'error': '同一客户同一时段不能重复上门预约'}), 400
+    if d.get('staff_id'):
+        c.execute(f"SELECT COUNT(*) as n FROM home_appointments WHERE id<>? AND staff_id=? AND appointment_date=? AND status='scheduled' AND {overlap_condition()}", (hid, d.get('staff_id'), d.get('appointment_date'), d.get('end_time'), d.get('start_time')))
+        if c.fetchone()['n'] > 0:
+            conn.close()
+            return jsonify({'error': '该服务人员该时段已有上门预约'}), 400
 
     home_address = d.get('home_address') or d.get('location')
     home_time = d.get('home_time') or f"{d.get('start_time')}-{d.get('end_time')}"
