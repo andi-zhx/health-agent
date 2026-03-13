@@ -171,19 +171,12 @@
         document.getElementById('mc-name').value = c.name || '';
         document.getElementById('mc-id_card').value = c.id_card || '';
         document.getElementById('mc-phone').value = c.phone || '';
-        document.getElementById('mc-email').value = c.email || '';
         document.getElementById('mc-address').value = c.address || '';
         document.getElementById('mc-gender').value = c.gender || '';
         document.getElementById('mc-birth_date').value = (c.birth_date || '').slice(0, 10);
-        document.getElementById('mc-medical_history').value = c.medical_history || '';
-        document.getElementById('mc-allergies').value = c.allergies || '';
-        document.getElementById('mc-diet_habits').value = c.diet_habits || '';
-        document.getElementById('mc-chronic_diseases').value = c.chronic_diseases || '';
-        document.getElementById('mc-health_status').value = c.health_status || '';
-        document.getElementById('mc-therapy_contraindications').value = c.therapy_contraindications || '';
       });
     } else {
-      ['mc-name', 'mc-id_card', 'mc-phone', 'mc-email', 'mc-address', 'mc-gender', 'mc-birth_date', 'mc-medical_history', 'mc-allergies', 'mc-diet_habits', 'mc-chronic_diseases', 'mc-health_status', 'mc-therapy_contraindications'].forEach(function (k) {
+      ['mc-name', 'mc-id_card', 'mc-phone', 'mc-address', 'mc-gender', 'mc-birth_date'].forEach(function (k) {
         var e = document.getElementById(k);
         if (e) e.value = e.tagName === 'SELECT' ? '' : '';
       });
@@ -198,6 +191,17 @@
       if (el) return el.value || null;
     }
     return null;
+  }
+
+  function healthRadioValue(name) {
+    var checked = document.querySelector('input[name="' + name + '"]:checked');
+    return checked ? checked.value : null;
+  }
+
+  function healthCheckboxValues(name) {
+    return Array.prototype.slice.call(document.querySelectorAll('input[name="' + name + '"]:checked')).map(function (el) {
+      return el.value;
+    });
   }
 
   function loadHealthPage() {
@@ -327,16 +331,9 @@
       name: document.getElementById('mc-name').value,
       id_card: document.getElementById('mc-id_card').value,
       phone: document.getElementById('mc-phone').value,
-      email: document.getElementById('mc-email').value,
       address: document.getElementById('mc-address').value,
       gender: document.getElementById('mc-gender').value,
-      birth_date: document.getElementById('mc-birth_date').value || null,
-      medical_history: document.getElementById('mc-medical_history').value,
-      allergies: document.getElementById('mc-allergies').value,
-      diet_habits: document.getElementById('mc-diet_habits').value,
-      chronic_diseases: document.getElementById('mc-chronic_diseases').value,
-      health_status: document.getElementById('mc-health_status').value,
-      therapy_contraindications: document.getElementById('mc-therapy_contraindications').value
+      birth_date: document.getElementById('mc-birth_date').value || null
     };
     (id ? put('/api/customers/' + id, body) : post('/api/customers', body)).then(function (res) {
       if (res.error) { showMsg('customer-msg', res.error, true); return; }
@@ -360,29 +357,28 @@
       address: healthValue('ha-address'),
       past_medical_history: healthValue('ha-past-medical-history', 'health-symptoms'),
       family_history: healthValue('ha-family-history', 'health-diagnosis'),
-      allergy_history: healthValue('ha-allergy-history'),
+      allergy_history: healthRadioValue('ha-allergy-history'),
       allergy_details: healthValue('ha-allergy-details'),
-      smoking_status: healthValue('ha-smoking-status'),
+      smoking_status: healthRadioValue('ha-smoking-status'),
       smoking_years: healthValue('ha-smoking-years'),
       cigarettes_per_day: healthValue('ha-cigarettes-per-day'),
-      drinking_status: healthValue('ha-drinking-status'),
+      drinking_status: healthRadioValue('ha-drinking-status'),
       drinking_years: healthValue('ha-drinking-years'),
-      fatigue_last_month: healthValue('ha-fatigue-last-month'),
-      sleep_quality: healthValue('ha-sleep-quality', 'health-bp'),
-      sleep_hours: healthValue('ha-sleep-hours'),
-      blood_pressure_test: healthValue('ha-blood-pressure-test'),
-      blood_lipid_test: healthValue('ha-blood-lipid-test'),
-      chronic_pain: healthValue('ha-chronic-pain'),
+      fatigue_last_month: healthRadioValue('ha-fatigue-last-month'),
+      sleep_quality: healthRadioValue('ha-sleep-quality'),
+      sleep_hours: healthRadioValue('ha-sleep-hours'),
+      blood_pressure_test: healthRadioValue('ha-blood-pressure-test'),
+      blood_lipid_test: healthRadioValue('ha-blood-lipid-test'),
+      chronic_pain: healthRadioValue('ha-chronic-pain'),
       pain_details: healthValue('ha-pain-details'),
-      exercise_methods: healthValue('ha-exercise-methods'),
-      weekly_exercise_freq: healthValue('ha-weekly-exercise-freq'),
-      health_needs: healthValue('ha-health-needs'),
+      exercise_methods: healthCheckboxValues('health-exercise-method'),
+      weekly_exercise_freq: healthRadioValue('ha-weekly-exercise-freq'),
+      health_needs: healthCheckboxValues('health-need').concat(healthValue('ha-health-needs-other') ? ['其他:' + healthValue('ha-health-needs-other')] : []),
       notes: healthValue('ha-notes', 'health-notes')
     };
     (hid ? put('/api/health-assessments/' + hid, body) : post('/api/health-assessments', body)).then(function (res) {
       if (res.error) { showMsg('health-msg', res.error, true); return; }
       showMsg('health-msg', res.message);
-      resetHealthForm();
       loadHealthPage();
     });
   });

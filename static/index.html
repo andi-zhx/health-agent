@@ -56,7 +56,9 @@
     .trend-bar .bar { flex: 1; height: 12px; background: #ecf0f1; border-radius: 99px; overflow: hidden; }
     .trend-bar .bar > span { display: block; height: 100%; background: #3498db; }
     .trend-bar .value { width: 26px; text-align: right; color: #2c3e50; font-weight: 600; }
-    .health-group-title { width: 100%; margin: 4px 0 8px; font-size: 14px; font-weight: 600; color: #2c3e50; }
+    .health-group-title { width: 100%; margin: 0 0 10px; font-size: 15px; font-weight: 700; color: #111; }
+    .health-section { border: 1px solid #000; border-radius: 6px; padding: 12px; margin-bottom: 14px; background: #fff; }
+    .health-section .form-row:last-child { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -117,166 +119,94 @@
       <div id="page-health" class="page hide">
         <div class="card">
           <h2>健康评估档案</h2>
-          <div class="form-row">
-            <div class="health-group-title">基础信息</div>
-            <label>客户</label>
-            <select id="health-customer"></select>
-            <label>评估日期</label>
-            <input type="date" id="health-date">
-            <label>评估员</label>
-            <input type="text" id="ha-assessor" placeholder="可选" style="width:120px">
-            <label>年龄</label>
-            <input type="number" id="ha-age" placeholder="可选" style="width:80px">
-            <label>身高(cm)</label>
-            <input type="number" id="ha-height-cm" placeholder="可选" style="width:80px">
-            <label>体重(kg)</label>
-            <input type="number" id="health-weight" placeholder="可选" style="width:80px">
+          <div class="health-section">
+            <div class="form-row">
+              <label>日期</label>
+              <input type="date" id="health-date">
+              <label>填表人</label>
+              <input type="text" id="ha-assessor" placeholder="请输入填表人" style="width:160px">
+            </div>
           </div>
-          <div class="form-row">
-            <label>过敏史</label>
-            <select id="health-allergy-history">
-              <option value="无">无</option>
-              <option value="有">有</option>
-            </select>
-            <label>吸烟情况</label>
-            <select id="health-smoking-status">
-              <option value="无">无</option>
-              <option value="有">有</option>
-            </select>
-            <label>饮酒</label>
-            <select id="health-drinking-status">
-              <option value="无">无</option>
-              <option value="有">有</option>
-            </select>
-            <label>近1个月疲劳</label>
-            <select id="health-fatigue-last-month">
-              <option value="无">无</option>
-              <option value="稍微疲劳">稍微疲劳</option>
-              <option value="比较疲劳">比较疲劳</option>
-              <option value="非常疲劳">非常疲劳</option>
-            </select>
+          <div class="health-section">
+            <div class="form-row">
+              <div class="health-group-title">基础信息</div>
+              <label>姓名</label>
+              <select id="health-customer"></select>
+              <label>年龄</label>
+              <input type="text" inputmode="numeric" id="ha-age" placeholder="可选" style="width:90px">
+              <label>身高(cm)</label>
+              <input type="text" inputmode="numeric" id="ha-height-cm" placeholder="可选" style="width:90px">
+              <label>体重(kg)</label>
+              <input type="text" inputmode="numeric" id="ha-weight-kg" placeholder="可选" style="width:90px">
+              <label>地址</label>
+              <input type="text" id="ha-address" placeholder="请输入地址" style="flex:1;max-width:320px">
+            </div>
           </div>
+          <div class="health-section">
           <div class="form-row">
-            <label>睡眠状况</label>
-            <select id="health-sleep-quality">
-              <option value="很差">很差</option>
-              <option value="差">差</option>
-              <option value="一般">一般</option>
-              <option value="良好">良好</option>
-            </select>
-            <label>睡眠时间</label>
-            <select id="health-sleep-hours">
-              <option value="<6小时">&lt;6小时</option>
-              <option value="6-8小时">6-8小时</option>
-              <option value="9-10小时">9-10小时</option>
-              <option value=">10小时">&gt;10小时</option>
-            </select>
-            <label>近半年血压检测</label>
-            <select id="health-blood-pressure-test">
-              <option value="未监测">未监测</option>
-              <option value="正常">正常</option>
-              <option value="偏低">偏低</option>
-              <option value="偏高">偏高</option>
-            </select>
-            <label>近半年血脂检测</label>
-            <select id="health-blood-lipid-test">
-              <option value="未监测">未监测</option>
-              <option value="正常">正常</option>
-              <option value="偏高">偏高</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>肩颈腰关节疼痛</label>
-            <select id="health-chronic-pain">
-              <option value="无">无</option>
-              <option value="有">有</option>
-            </select>
-            <label>每周锻炼频次</label>
-            <select id="health-weekly-exercise-freq">
-              <option value="≤2次">≤2次</option>
-              <option value="3-4次">3-4次</option>
-              <option value="5-7次">5-7次</option>
-              <option value="≥7次">≥7次</option>
-            </select>
-            <input type="number" id="ha-weight-kg" placeholder="可选" style="width:80px">
-            <label>地址</label>
-            <input type="text" id="ha-address" placeholder="可选" style="flex:1;max-width:300px">
-          </div>
-          <div class="form-row">
-            <div class="health-group-title">病史与习惯</div>
+            <div class="health-group-title">健康状况与习惯</div>
             <label>既往史</label>
-            <input type="text" id="ha-past-medical-history" placeholder="可选" style="flex:1;max-width:280px">
+            <input type="text" id="ha-past-medical-history" style="flex:1;max-width:220px">
             <label>家族史</label>
-            <input type="text" id="ha-family-history" placeholder="可选" style="flex:1;max-width:280px">
+            <input type="text" id="ha-family-history" style="flex:1;max-width:220px">
             <label>过敏史</label>
-            <select id="ha-allergy-history" style="width:100px">
-              <option value="">未填写</option>
-              <option value="无">无</option>
-              <option value="有">有</option>
-            </select>
-            <label>过敏详情</label>
-            <input type="text" id="ha-allergy-details" placeholder="可选" style="flex:1;max-width:280px">
+            <label><input type="radio" name="ha-allergy-history" value="无">无</label>
+            <label><input type="radio" name="ha-allergy-history" value="有">有</label>
+            <label>过敏史</label>
+            <input type="text" id="ha-allergy-details" style="flex:1;max-width:220px">
           </div>
           <div class="form-row">
-            <label>吸烟</label>
-            <select id="ha-smoking-status" style="width:100px">
-              <option value="">未填写</option>
-              <option value="否">否</option>
-              <option value="是">是</option>
-            </select>
-            <label>烟龄(年)</label>
-            <input type="number" id="ha-smoking-years" placeholder="可选" style="width:90px">
-            <label>日均支数</label>
-            <input type="number" id="ha-cigarettes-per-day" placeholder="可选" style="width:90px">
+            <label>吸烟情况</label>
+            <label><input type="radio" name="ha-smoking-status" value="无">无</label>
+            <label><input type="radio" name="ha-smoking-status" value="有">有</label>
+            <label>烟龄</label>
+            <input type="text" inputmode="numeric" id="ha-smoking-years" style="width:90px">
+            <span>年</span>
+            <input type="text" inputmode="numeric" id="ha-cigarettes-per-day" style="width:90px">
+            <span>支/日</span>
             <label>饮酒</label>
-            <select id="ha-drinking-status" style="width:100px">
-              <option value="">未填写</option>
-              <option value="否">否</option>
-              <option value="是">是</option>
-            </select>
-            <label>酒龄(年)</label>
-            <input type="number" id="ha-drinking-years" placeholder="可选" style="width:90px">
+            <label><input type="radio" name="ha-drinking-status" value="无">无</label>
+            <label><input type="radio" name="ha-drinking-status" value="有">有</label>
+            <label>饮酒</label>
+            <input type="text" inputmode="numeric" id="ha-drinking-years" style="width:90px">
+            <span>年</span>
           </div>
           <div class="form-row">
-            <div class="health-group-title">当前身体状态</div>
-            <label>近一月疲劳</label>
-            <select id="ha-fatigue-last-month" style="width:110px">
-              <option value="">未填写</option>
-              <option value="无">无</option>
-              <option value="轻度">轻度</option>
-              <option value="中度">中度</option>
-              <option value="重度">重度</option>
-            </select>
-            <label>睡眠状况</label>
-            <input type="text" id="ha-sleep-quality" placeholder="如：一般" style="width:120px">
-            <label>睡眠时长(h)</label>
-            <input type="number" id="ha-sleep-hours" placeholder="可选" style="width:90px">
-            <label>血压检测</label>
-            <input type="text" id="ha-blood-pressure-test" placeholder="可选" style="width:100px">
-            <label>血脂检测</label>
-            <input type="text" id="ha-blood-lipid-test" placeholder="可选" style="width:100px">
+            <label>近一个月有无感觉疲劳</label>
+            <label><input type="radio" name="ha-fatigue-last-month" value="无">无</label>
+            <label><input type="radio" name="ha-fatigue-last-month" value="稍微疲劳">稍微疲劳</label>
+            <label><input type="radio" name="ha-fatigue-last-month" value="比较疲劳">比较疲劳</label>
+            <label>目前的睡眠状况</label>
+            <label><input type="radio" name="ha-sleep-quality" value="很差">很差</label>
+            <label><input type="radio" name="ha-sleep-quality" value="差">差</label>
+            <label><input type="radio" name="ha-sleep-quality" value="一般">一般</label>
           </div>
           <div class="form-row">
-            <label>慢性疼痛</label>
-            <select id="ha-chronic-pain" style="width:100px">
-              <option value="">未填写</option>
-              <option value="无">无</option>
-              <option value="有">有</option>
-            </select>
-            <label>疼痛详情</label>
-            <input type="text" id="ha-pain-details" placeholder="可选" style="flex:1;max-width:360px">
+            <label>睡眠时间</label>
+            <label><input type="radio" name="ha-sleep-hours" value="<6小时">&lt;6小时</label>
+            <label><input type="radio" name="ha-sleep-hours" value="6-8小时">6-8小时</label>
+            <label><input type="radio" name="ha-sleep-hours" value="9-10小时">9-10小时</label>
+            <label>近半年血压检测情况</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="未监测">未监测</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="监测：正常">监测：正常</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="监测：偏低">监测：偏低</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="监测：偏高">监测：偏高</label>
           </div>
           <div class="form-row">
-            <div class="health-group-title">运动与健康需求</div>
-            <label>运动方式</label>
-            <input type="text" id="ha-exercise-methods" placeholder="如：步行、瑜伽" style="flex:1;max-width:300px">
-            <label>每周锻炼频次</label>
-            <input type="text" id="ha-weekly-exercise-freq" placeholder="如：3次" style="width:100px">
-            <label>健康需求</label>
-            <input type="text" id="ha-health-needs" placeholder="如：减脂、调理睡眠" style="flex:1;max-width:320px">
+            <label>近半年血脂检测情况</label>
+            <label><input type="radio" name="ha-blood-lipid-test" value="未监测">未监测</label>
+            <label><input type="radio" name="ha-blood-lipid-test" value="监测：正常">监测：正常</label>
+            <label><input type="radio" name="ha-blood-lipid-test" value="监测：偏高">监测：偏高</label>
+            <label>是否经常肩颈部、腰部、关节疼痛情况</label>
+            <label><input type="radio" name="ha-chronic-pain" value="无">无</label>
+            <label><input type="radio" name="ha-chronic-pain" value="有">有</label>
+            <label>详细情况</label>
+            <input type="text" id="ha-pain-details" style="flex:1;max-width:320px">
           </div>
+          </div>
+          <div class="health-section">
           <div class="form-row">
-            <label>锻炼方式</label>
+            <label>锻炼方式（多选）</label>
             <div id="health-exercise-methods" style="display:flex;flex-wrap:wrap;gap:10px;flex:1">
               <label><input type="checkbox" name="health-exercise-method" value="散步">散步</label>
               <label><input type="checkbox" name="health-exercise-method" value="一般家务">一般家务</label>
@@ -293,7 +223,14 @@
             </div>
           </div>
           <div class="form-row">
-            <label>其他健康所需</label>
+            <label>平均每周锻炼频次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value="<3次">&lt;3次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value="3-4次">3-4次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value="5-7次">5-7次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value=">7次">&gt;7次</label>
+          </div>
+          <div class="form-row">
+            <label>其他健康所需（多选）</label>
             <div id="health-needs" style="display:flex;flex-wrap:wrap;gap:10px;flex:1">
               <label><input type="checkbox" name="health-need" value="疾病筛查">疾病筛查</label>
               <label><input type="checkbox" name="health-need" value="就医陪诊">就医陪诊</label>
@@ -305,8 +242,10 @@
               <label><input type="checkbox" name="health-need" value="运动养生">运动养生</label>
               <label><input type="checkbox" name="health-need" value="健康教育">健康教育</label>
               <label><input type="checkbox" name="health-need" value="远程医疗服务">远程医疗服务</label>
-              <label><input type="checkbox" name="health-need" value="其他">其他</label>
             </div>
+            <label>其他</label>
+            <input type="text" id="ha-health-needs-other" style="flex:1;max-width:240px">
+          </div>
           </div>
           <div class="form-row">
             <label>备注</label>
@@ -496,17 +435,10 @@
       <div class="form-row"><label>姓名</label><input type="text" id="mc-name" required></div>
       <div class="form-row"><label>身份证</label><input type="text" id="mc-id_card" required></div>
       <div class="form-row"><label>电话</label><input type="text" id="mc-phone" required></div>
-      <div class="form-row"><label>邮箱</label><input type="text" id="mc-email"></div>
-      <div class="form-row"><label>地址</label><input type="text" id="mc-address"></div>
+            <div class="form-row"><label>地址</label><input type="text" id="mc-address"></div>
       <div class="form-row"><label>性别</label><select id="mc-gender"><option value="">-</option><option value="男">男</option><option value="女">女</option></select></div>
       <div class="form-row"><label>出生日期</label><input type="date" id="mc-birth_date"></div>
-      <div class="form-row"><label>病史</label><textarea id="mc-medical_history"></textarea></div>
-      <div class="form-row"><label>过敏史</label><textarea id="mc-allergies"></textarea></div>
-      <div class="form-row"><label>饮食习惯</label><textarea id="mc-diet_habits" placeholder="如：低盐、清淡、忌辛辣"></textarea></div>
-      <div class="form-row"><label>基础疾病</label><textarea id="mc-chronic_diseases" placeholder="如：高血压、糖尿病"></textarea></div>
-      <div class="form-row"><label>健康状况</label><textarea id="mc-health_status" placeholder="近期状态、风险提示"></textarea></div>
-      <div class="form-row"><label>理疗禁忌</label><textarea id="mc-therapy_contraindications" placeholder="不适宜项目与注意事项"></textarea></div>
-      <div class="modal-actions">
+                                          <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-modal-cancel">取消</button>
         <button class="btn btn-primary" id="btn-modal-save">保存</button>
       </div>
