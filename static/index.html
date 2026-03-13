@@ -110,8 +110,9 @@
         <div class="card">
           <h2>客户档案</h2>
           <div class="search-bar">
-            <input type="text" id="customer-search" placeholder="姓名 / 身份证 / 电话">
-            <button class="btn btn-primary" id="btn-customer-search">搜索</button>
+            <input type="text" id="customer-search" placeholder="按姓名查询">
+            <button class="btn btn-primary" id="btn-customer-search">按姓名查询</button>
+            <button class="btn btn-secondary" id="btn-customer-reset">显示全部</button>
             <button class="btn btn-primary" id="btn-customer-add">新增客户</button>
           </div>
           <div id="customer-msg"></div>
@@ -124,6 +125,11 @@
       <div id="page-health" class="page hide">
         <div class="card">
           <h2>健康评估档案</h2>
+          <div class="search-bar">
+            <input type="text" id="health-search" placeholder="按姓名查询历史档案">
+            <button class="btn btn-primary" id="btn-health-search">查询</button>
+            <button class="btn btn-secondary" id="btn-health-reset">显示全部</button>
+          </div>
           <div class="health-section">
             <div class="form-row">
               <label>日期</label>
@@ -397,6 +403,16 @@
                                           <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-modal-cancel">取消</button>
         <button class="btn btn-primary" id="btn-modal-save">保存</button>
+      </div>
+    </div>
+  </div>
+  <div id="modal-edit-confirm" class="modal-mask hide">
+    <div class="modal">
+      <h3 id="modal-confirm-title">确认修改</h3>
+      <div id="modal-confirm-content" style="line-height:1.8;color:#2c3e50"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-confirm-cancel">取消</button>
+        <button class="btn btn-primary" id="btn-confirm-submit">确认修改</button>
       </div>
     </div>
   </div>
