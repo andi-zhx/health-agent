@@ -224,7 +224,7 @@
     get('/api/health-assessments').then(function (list) {
       var tbody = document.getElementById('health-list');
       tbody.innerHTML = toList(list).map(function (h) {
-        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td></tr>';
+        return '<tr><td>' + (h.customer_name || '') + '</td><td>' + (h.assessment_date || '') + '</td><td>' + (h.height_cm || '-') + '</td><td>' + (h.weight_kg || '-') + '</td><td>' + (h.fatigue_last_month || '-') + '</td><td>' + (h.sleep_quality || '-') + '</td><td>' + (h.weekly_exercise_freq || '-') + '</td><td>' + (h.past_medical_history || '-') + '</td><td><button class="btn btn-small btn-primary" data-health-edit="' + h.id + '">编辑</button></td></tr>';
       }).join('');
       tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -570,6 +570,43 @@
   document.getElementById('apt-date').value = today;
   document.getElementById('home-date').value = today;
   document.getElementById('usage-date').value = today;
+
+  function fillHealthForm(data) {
+    document.getElementById('health-id').value = data.id || '';
+    document.getElementById('health-customer').value = data.customer_id || '';
+    document.getElementById('health-date').value = (data.assessment_date || '').slice(0, 10);
+    document.getElementById('ha-assessor').value = data.assessor || '';
+    document.getElementById('ha-age').value = data.age || '';
+    document.getElementById('ha-height-cm').value = data.height_cm || '';
+    document.getElementById('ha-weight-kg').value = data.weight_kg || '';
+    document.getElementById('ha-address').value = data.address || '';
+    document.getElementById('ha-past-medical-history').value = data.past_medical_history || '';
+    document.getElementById('ha-family-history').value = data.family_history || '';
+    document.getElementById('ha-allergy-details').value = data.allergy_details || '';
+    document.getElementById('ha-smoking-years').value = data.smoking_years || '';
+    document.getElementById('ha-cigarettes-per-day').value = data.cigarettes_per_day || '';
+    document.getElementById('ha-drinking-years').value = data.drinking_years || '';
+    document.getElementById('ha-pain-details').value = data.pain_details || '';
+    document.getElementById('ha-health-needs-other').value = (data.health_needs || []).filter(function(x){return x.indexOf('其他:')===0;}).map(function(x){return x.replace('其他:','');})[0] || '';
+    document.getElementById('ha-notes').value = data.notes || '';
+
+    var radios = ['ha-allergy-history', 'ha-smoking-status', 'ha-drinking-status', 'ha-fatigue-last-month', 'ha-sleep-quality', 'ha-sleep-hours', 'ha-blood-pressure-test', 'ha-blood-lipid-test', 'ha-chronic-pain', 'ha-weekly-exercise-freq'];
+    radios.forEach(function(name) {
+      var val = data[name.replace('ha-', '').replace(/-/g, '_')];
+      if (name === 'ha-weekly-exercise-freq') val = data.weekly_exercise_freq;
+      var el = document.querySelector('input[name="' + name + '"][value="' + val + '"]');
+      if (el) el.checked = true;
+    });
+
+    var checkGroups = { 'health-exercise-method': data.exercise_methods, 'health-need': data.health_needs };
+    Object.keys(checkGroups).forEach(function(name) {
+      var vals = checkGroups[name] || [];
+      document.querySelectorAll('input[name="' + name + '"]').forEach(function(el) {
+        el.checked = vals.indexOf(el.value) !== -1;
+      });
+    });
+    window.scrollTo(0, 0);
+  }
 
   showPage('home');
 })();

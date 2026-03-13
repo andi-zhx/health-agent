@@ -944,6 +944,7 @@ def api_health_assessments_list():
     conn = get_db()
     c = conn.cursor()
     sql = 'SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE 1=1'
+    params = []
     if customer_id:
         sql += ' AND h.customer_id=?'
         params.append(customer_id)
@@ -1327,7 +1328,7 @@ def api_equipment_usage_list():
         SELECT eu.*, c.name as customer_name, e.name as equipment_name, p.name as project_name, s.name as staff_name
         FROM equipment_usage eu
         JOIN customers c ON eu.customer_id=c.id
-        JOIN equipment e ON eu.equipment_id=e.id
+        LEFT JOIN equipment e ON eu.equipment_id=e.id
         LEFT JOIN therapy_projects p ON eu.project_id=p.id
         LEFT JOIN staff s ON eu.staff_id=s.id
         ORDER BY eu.usage_date DESC
@@ -1453,8 +1454,8 @@ def api_search():
         result['customers'] = row_list(c.fetchall())
 
     if kind in ('all', 'health'):
-        c.execute('SELECT h.*, c.name as customer_name FROM health_records h JOIN customers c ON h.customer_id=c.id WHERE c.name LIKE ? OR c.id_card LIKE ? OR c.phone LIKE ? OR h.symptoms LIKE ? OR h.diagnosis LIKE ? OR h.notes LIKE ? ORDER BY h.record_date DESC LIMIT 100',
-                  (like, like, like, like, like, like))
+        c.execute('SELECT h.*, c.name as customer_name FROM health_assessments h JOIN customers c ON h.customer_id=c.id WHERE c.name LIKE ? OR c.id_card LIKE ? OR c.phone LIKE ? OR h.notes LIKE ? ORDER BY h.assessment_date DESC LIMIT 100',
+                  (like, like, like, like))
         result['health_records'] = row_list(c.fetchall())
 
     if kind in ('all', 'appointments'):
@@ -1577,7 +1578,7 @@ def api_dashboard_analytics():
         SELECT COUNT(DISTINCT customer_id) as n FROM (
             SELECT customer_id FROM appointments
             UNION ALL
-            SELECT customer_id FROM health_records
+            SELECT customer_id FROM health_assessments
         )
     ''')
     active_customers = c.fetchone()['n']
@@ -1613,7 +1614,7 @@ def api_export_customers():
 def api_export_appointments():
     conn = get_db()
     df = pd.read_sql_query('''SELECT a.id, c.name as customer_name, c.phone, e.name as equipment_name, a.appointment_date, a.start_time, a.end_time, a.status, a.notes
-        FROM appointments a JOIN customers c ON a.customer_id=c.id JOIN equipment e ON a.equipment_id=e.id ORDER BY a.appointment_date DESC''', conn)
+        FROM appointments a JOIN customers c ON a.customer_id=c.id LEFT JOIN equipment e ON a.equipment_id=e.id ORDER BY a.appointment_date DESC''', conn)
     conn.close()
     fn = 'appointments_%s.xlsx' % datetime.now().strftime('%Y%m%d_%H%M%S')
     fp = os.path.join(UPLOAD_FOLDER, fn)
@@ -1625,7 +1626,7 @@ def api_export_appointments():
 def api_export_usage():
     conn = get_db()
     df = pd.read_sql_query('''SELECT eu.id, c.name as customer_name, e.name as equipment_name, eu.usage_date, eu.duration_minutes, eu.parameters, eu.notes, eu.operator
-        FROM equipment_usage eu JOIN customers c ON eu.customer_id=c.id JOIN equipment e ON eu.equipment_id=e.id ORDER BY eu.usage_date DESC''', conn)
+        FROM equipment_usage eu JOIN customers c ON eu.customer_id=c.id LEFT JOIN equipment e ON eu.equipment_id=e.id ORDER BY eu.usage_date DESC''', conn)
     conn.close()
     fn = 'equipment_usage_%s.xlsx' % datetime.now().strftime('%Y%m%d_%H%M%S')
     fp = os.path.join(UPLOAD_FOLDER, fn)
