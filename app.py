@@ -1813,6 +1813,73 @@ def api_dashboard_analytics():
 
 
 # ========== 导出与下载 ==========
+@app.route('/api/export/query-download', methods=['GET'])
+def api_export_query_download():
+    scope = (request.args.get('scope') or 'single').strip()
+    dataset = (request.args.get('dataset') or 'all').strip()
+    customer_id = request.args.get('customer_id')
+
+    allowed_datasets = {'all', 'customers', 'health', 'appointments', 'checkins', 'usage', 'surveys'}
+    if scope not in {'single', 'all'}:
+        return jsonify({'error': '下载范围参数不合法'}), 400
+    if dataset not in allowed_datasets:
+        return jsonify({'error': '下载内容参数不合法'}), 400
+    if scope == 'single' and not customer_id:
+        return jsonify({'error': '请选择客户后下载'}), 400
+
+    conn = get_db()
+    try:
+        if scope == 'single':
+            c = conn.cursor()
+            c.execute('SELECT id, name FROM customers WHERE id=?', (customer_id,))
+            customer = c.fetchone()
+            if not customer:
+                return jsonify({'error': '客户不存在'}), 404
+            customer_name = customer['name']
+            name_prefix = f'single_{customer_name}_{customer_id}'
+        else:
+            name_prefix = 'all_customers'
+
+        queries = {
+            'customers': ('客户档案', 'SELECT * FROM customers {where_clause} ORDER BY created_at DESC'),
+            'health': ('健康档案', '''SELECT h.*, c.name as customer_name, c.phone
+                FROM health_assessments h JOIN customers c ON h.customer_id=c.id
+                {where_clause} ORDER BY h.assessment_date DESC'''),
+            'appointments': ('预约记录', '''SELECT a.*, c.name as customer_name, c.phone as customer_phone, e.name as equipment_name
+                FROM appointments a JOIN customers c ON a.customer_id=c.id LEFT JOIN equipment e ON a.equipment_id=e.id
+                {where_clause} ORDER BY a.appointment_date DESC, a.start_time DESC'''),
+            'checkins': ('来访签到', '''SELECT v.*, c.name as customer_name, c.phone
+                FROM visit_checkins v JOIN customers c ON v.customer_id=c.id
+                {where_clause} ORDER BY v.checkin_time DESC'''),
+            'usage': ('仪器使用', '''SELECT eu.*, c.name as customer_name, c.phone, e.name as equipment_name
+                FROM equipment_usage eu JOIN customers c ON eu.customer_id=c.id LEFT JOIN equipment e ON eu.equipment_id=e.id
+                {where_clause} ORDER BY eu.usage_date DESC'''),
+            'surveys': ('满意度', '''SELECT s.*, c.name as customer_name, c.phone
+                FROM satisfaction_surveys s JOIN customers c ON s.customer_id=c.id
+                {where_clause} ORDER BY s.survey_date DESC'''),
+        }
+
+        target_keys = list(queries.keys()) if dataset == 'all' else [dataset]
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        fn = f'{name_prefix}_{dataset}_{ts}.xlsx'
+        fp = os.path.join(UPLOAD_FOLDER, fn)
+
+        with pd.ExcelWriter(fp, engine='openpyxl') as writer:
+            for key in target_keys:
+                sheet_name, sql_tpl = queries[key]
+                if scope == 'single':
+                    where_clause = 'WHERE c.id = ?' if key != 'customers' else 'WHERE id = ?'
+                    df = pd.read_sql_query(sql_tpl.format(where_clause=where_clause), conn, params=(customer_id,))
+                else:
+                    where_clause = ''
+                    df = pd.read_sql_query(sql_tpl.format(where_clause=where_clause), conn)
+                df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+    finally:
+        conn.close()
+
+    return jsonify({'filename': fn, 'download_url': '/api/download/' + fn})
+
+
 @app.route('/api/export/customers', methods=['GET'])
 def api_export_customers():
     conn = get_db()

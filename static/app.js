@@ -34,6 +34,11 @@
     if (name === 'checkins') loadCheckinsPage();
     if (name === 'usage') loadUsagePage();
     if (name === 'surveys') loadSurveysPage();
+    if (name === 'query-export') loadQueryExportPage();
+  }
+
+  function loadQueryExportPage() {
+    fillCustomerSelect('qe-customer');
   }
 
   function loadStats() {
@@ -887,29 +892,41 @@
     });
   });
 
-  document.getElementById('btn-export-customers').addEventListener('click', function () {
-    get('/api/export/customers').then(function (data) {
-      if (data.download_url) window.location.href = data.download_url;
-      showMsg('export-msg', '已触发下载');
-    });
-  });
-  document.getElementById('btn-export-appointments').addEventListener('click', function () {
-    get('/api/export/appointments').then(function (data) {
-      if (data.download_url) window.location.href = data.download_url;
-      showMsg('export-msg', '已触发下载');
-    });
-  });
-  document.getElementById('btn-export-usage').addEventListener('click', function () {
-    get('/api/export/equipment-usage').then(function (data) {
-      if (data.download_url) window.location.href = data.download_url;
-      showMsg('export-msg', '已触发下载');
+  function refreshQueryExportScope() {
+    var scope = document.getElementById('qe-scope').value;
+    var customerSel = document.getElementById('qe-customer');
+    var customerLabel = document.getElementById('qe-customer-label');
+    var hideCustomer = scope === 'all';
+    customerSel.style.display = hideCustomer ? 'none' : 'inline-flex';
+    customerLabel.style.display = hideCustomer ? 'none' : 'inline-flex';
+  }
+
+  document.getElementById('qe-scope').addEventListener('change', refreshQueryExportScope);
+
+  document.getElementById('btn-query-export-download').addEventListener('click', function () {
+    var scope = document.getElementById('qe-scope').value;
+    var dataset = document.getElementById('qe-dataset').value;
+    var customerId = document.getElementById('qe-customer').value;
+    if (scope === 'single' && !customerId) {
+      showMsg('query-export-msg', '请选择要下载的客户', true);
+      return;
+    }
+    var url = '/api/export/query-download?scope=' + encodeURIComponent(scope) + '&dataset=' + encodeURIComponent(dataset);
+    if (scope === 'single') url += '&customer_id=' + encodeURIComponent(customerId);
+    get(url).then(function (res) {
+      if (res.error) {
+        showMsg('query-export-msg', res.error, true);
+        return;
+      }
+      if (res.download_url) window.location.href = res.download_url;
+      showMsg('query-export-msg', '已触发下载：' + (res.filename || ''));
     });
   });
 
   document.getElementById('btn-backup-now').addEventListener('click', function () {
     post('/api/system/backup', {}).then(function (res) {
-      if (res.error || res.status === 'failed') { showMsg('export-msg', res.message || res.error || '备份失败', true); return; }
-      showMsg('export-msg', '备份成功：' + (res.filename || ''));
+      if (res.error || res.status === 'failed') { showMsg('query-export-msg', res.message || res.error || '备份失败', true); return; }
+      showMsg('query-export-msg', '备份成功：' + (res.filename || ''));
     });
   });
 
@@ -951,6 +968,7 @@
   document.getElementById('apt-date').value = today;
   document.getElementById('home-date').value = today;
   document.getElementById('usage-date').value = today;
+  refreshQueryExportScope();
 
   function fillHealthForm(data) {
     document.querySelectorAll('input[name^="ha-"]').forEach(function (el) { if (el.type === 'radio') el.checked = false; });
