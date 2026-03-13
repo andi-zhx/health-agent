@@ -163,6 +163,7 @@
   var pendingAction = null;
   var customerEditSnapshot = null;
   var selectedHealthDetailId = '';
+  var editingHealthSnapshot = null;
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -177,6 +178,17 @@
     var sel = document.getElementById('health-customer');
     if (!sel || sel.selectedIndex < 0) return '';
     return sel.options[sel.selectedIndex].text || '';
+  }
+
+  function setHealthEditMode(isEditing) {
+    var cancelBtn = document.getElementById('btn-health-cancel-edit');
+    if (!cancelBtn) return;
+    cancelBtn.style.display = isEditing ? 'inline-flex' : 'none';
+  }
+
+  function clearHealthEditState() {
+    editingHealthSnapshot = null;
+    setHealthEditMode(false);
   }
 
   function openConfirmModal(title, rows, onConfirm) {
@@ -298,6 +310,8 @@
       tbody.querySelectorAll('[data-health-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () {
           get('/api/health-assessments/' + btn.dataset.healthEdit).then(function (data) {
+            editingHealthSnapshot = data && data.id ? JSON.parse(JSON.stringify(data)) : null;
+            setHealthEditMode(!!(data && data.id));
             fillHealthForm(data || {});
           });
         });
@@ -427,6 +441,16 @@
     document.getElementById('health-search').value = '';
     loadHealthPage();
   });
+  document.getElementById('btn-health-cancel-edit').addEventListener('click', function () {
+    if (editingHealthSnapshot && editingHealthSnapshot.id) {
+      fillHealthForm(editingHealthSnapshot);
+      showMsg('health-msg', '已退出编辑，原始记录未修改', false);
+    } else {
+      fillHealthForm({});
+      showMsg('health-msg', '', false);
+    }
+    clearHealthEditState();
+  });
   document.getElementById('btn-confirm-cancel').addEventListener('click', closeConfirmModal);
   document.getElementById('btn-confirm-submit').addEventListener('click', function () {
     if (typeof pendingAction === 'function') pendingAction();
@@ -512,6 +536,7 @@
         if (res.error) { showMsg('health-msg', res.error, true); return; }
         showMsg('health-msg', res.message);
         fillHealthForm({});
+        clearHealthEditState();
         loadHealthPage();
       });
       return;
@@ -552,6 +577,7 @@
         if (res.error) { showMsg('health-msg', res.error, true); return; }
         closeConfirmModal();
         showMsg('health-msg', res.message);
+        clearHealthEditState();
         loadHealthPage();
         get('/api/health-assessments/' + hid).then(function (data) {
           renderHealthDetail(data || {});
