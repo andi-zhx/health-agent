@@ -400,6 +400,11 @@
               <option value="surveys">满意度</option>
             </select>
             <button class="btn btn-primary" id="btn-query-export-download">下载Excel</button>
+          </div>
+          <div class="form-row">
+            <label>数据库备份路径</label>
+            <input type="text" id="backup-path" placeholder="例如：D:/db-backups 或 /Users/me/db-backups" style="min-width:380px">
+            <button class="btn btn-secondary" id="btn-backup-path-save">保存路径</button>
             <button class="btn btn-secondary" id="btn-backup-now">立即备份数据库</button>
           </div>
           <div id="query-export-msg"></div>

@@ -39,6 +39,10 @@
 
   function loadQueryExportPage() {
     fillCustomerSelect('qe-customer');
+    get('/api/system/backup-path').then(function (res) {
+      if (!res || res.error) return;
+      document.getElementById('backup-path').value = res.backup_directory || '';
+    });
   }
 
   function loadStats() {
@@ -923,10 +927,29 @@
     });
   });
 
+  document.getElementById('btn-backup-path-save').addEventListener('click', function () {
+    var backupPath = (document.getElementById('backup-path').value || '').trim();
+    if (!backupPath) {
+      showMsg('query-export-msg', '请先输入数据库备份路径', true);
+      return;
+    }
+    post('/api/system/backup-path', { backup_directory: backupPath }).then(function (res) {
+      if (res.error) { showMsg('query-export-msg', res.error, true); return; }
+      document.getElementById('backup-path').value = res.backup_directory || backupPath;
+      showMsg('query-export-msg', '备份路径已保存：' + (res.backup_directory || backupPath));
+    });
+  });
+
   document.getElementById('btn-backup-now').addEventListener('click', function () {
-    post('/api/system/backup', {}).then(function (res) {
+    var backupPath = (document.getElementById('backup-path').value || '').trim();
+    post('/api/system/backup', { backup_directory: backupPath }).then(function (res) {
       if (res.error || res.status === 'failed') { showMsg('query-export-msg', res.message || res.error || '备份失败', true); return; }
-      showMsg('query-export-msg', '备份成功：' + (res.filename || ''));
+      if (res.backup_file) {
+        showMsg('query-export-msg', '备份成功：' + res.backup_file);
+      } else {
+        showMsg('query-export-msg', '备份成功：' + (res.filename || ''));
+      }
+      if (backupPath) document.getElementById('backup-path').value = backupPath;
     });
   });
 
