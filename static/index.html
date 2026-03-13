@@ -73,7 +73,7 @@
       <a href="#" data-page="home" class="active">首页</a>
       <a href="#" data-page="customers">客户档案</a>
       <a href="#" data-page="health">健康档案</a>
-      <a href="#" data-page="appointments">预约记录</a>
+      <a href="#" data-page="appointments">预约服务</a>
       <a href="#" data-page="home-appointments">上门预约</a>
       <a href="#" data-page="checkins">来访签到</a>
       <a href="#" data-page="usage">仪器使用</a>
@@ -232,28 +232,26 @@
       </div>
       <div id="page-appointments" class="page hide">
         <div class="card">
-          <h2>预约记录</h2>
+          <h2>预约服务</h2>
+          <div class="form-row"><label>客户</label><select id="apt-customer"></select></div>
+          <div class="form-row"><label>项目</label><select id="apt-project"></select></div>
+          <div class="form-row"><label>设备</label><select id="apt-equipment"></select></div>
+          <div class="form-row"><label>人员</label><select id="apt-staff"></select></div>
           <div class="form-row">
-            <label>客户</label>
-            <select id="apt-customer"></select>
-            <label>项目</label>
-            <select id="apt-project"></select>
-            <label>设备</label>
-            <select id="apt-equipment"></select>
-            <label>人员</label>
-            <select id="apt-staff"></select>
-            <label>日期</label>
+            <label>预约时间</label>
             <input type="date" id="apt-date">
-            <label>开始</label>
-            <input type="time" id="apt-start">
-            <label>结束</label>
-            <input type="time" id="apt-end">
+            <select id="apt-slot"><option value="">请选择可预约时段</option></select>
+            <input type="hidden" id="apt-start">
+            <input type="hidden" id="apt-end">
             <label>备注</label>
             <input type="text" id="apt-notes" placeholder="可选">
           </div>
+          <div class="form-row hide" id="apt-edit-actions">
+            <button class="btn btn-danger" id="btn-apt-mark-cancel">改为取消预约</button>
+            <button class="btn btn-secondary" id="btn-apt-cancel-edit">退出编辑</button>
+          </div>
           <div class="form-row">
             <button class="btn btn-primary" id="btn-apt-check">查询空余时段</button>
-            <button class="btn btn-secondary" id="btn-apt-options">查询可用资源</button>
             <button class="btn btn-primary" id="btn-apt-save">保存预约</button>
           </div>
           <div id="apt-availability" style="color:#2c3e50;margin-bottom:8px"></div>
