@@ -280,11 +280,16 @@ def init_db():
     ''')
 
     ensure_columns(c, 'equipment_usage', {
+        'appointment_id': 'INTEGER',
         'project_id': 'INTEGER',
         'staff_id': 'INTEGER',
+        'parameters': 'TEXT',
+        'notes': 'TEXT',
+        'operator': 'TEXT',
         'usage_status': 'TEXT',
         'usage_result': 'TEXT',
         'customer_feedback': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
     })
 
     c.execute('''
@@ -397,12 +402,24 @@ def init_db():
     ''')
 
     ensure_columns(c, 'home_appointments', {
+        'project_id': 'INTEGER',
+        'staff_id': 'INTEGER',
         'customer_name': 'TEXT',
         'phone': 'TEXT',
         'home_time': 'TEXT',
         'home_address': 'TEXT',
         'service_project': 'TEXT',
         'staff_name': 'TEXT',
+        'appointment_date': 'TEXT',
+        'start_time': 'TEXT',
+        'end_time': 'TEXT',
+        'location': 'TEXT',
+        'contact_person': 'TEXT',
+        'contact_phone': 'TEXT',
+        'notes': 'TEXT',
+        'status': "TEXT DEFAULT 'scheduled'",
+        'updated_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
     })
 
     c.execute('''
@@ -434,6 +451,18 @@ def init_db():
         )
     ''')
 
+    ensure_columns(c, 'satisfaction_surveys', {
+        'appointment_id': 'INTEGER',
+        'service_rating': 'INTEGER',
+        'equipment_rating': 'INTEGER',
+        'environment_rating': 'INTEGER',
+        'staff_rating': 'INTEGER',
+        'overall_rating': 'INTEGER',
+        'feedback': 'TEXT',
+        'suggestions': 'TEXT',
+        'survey_date': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
+
     c.execute('''
         CREATE TABLE IF NOT EXISTS health_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -461,6 +490,12 @@ def init_db():
             FOREIGN KEY (customer_id) REFERENCES customers(id)
         )
     ''')
+
+    ensure_columns(c, 'visit_checkins', {
+        'purpose': 'TEXT',
+        'notes': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
 
     c.execute("SELECT COUNT(*) FROM equipment")
     if c.fetchone()[0] == 0:
