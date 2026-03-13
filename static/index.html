@@ -201,7 +201,126 @@
                   <span>其他</span><input type="text" id="ha-health-needs-other" style="min-width:180px">
                 </div>
               </div>
+          </div>
+          <div class="health-section">
+            <div class="form-row">
+              <div class="health-group-title">基础信息</div>
+              <label>姓名</label>
+              <select id="health-customer"></select>
+              <label>年龄</label>
+              <input type="text" inputmode="numeric" id="ha-age" placeholder="可选" style="width:90px">
+              <label>身高(cm)</label>
+              <input type="text" inputmode="numeric" id="ha-height-cm" placeholder="可选" style="width:90px">
+              <label>体重(kg)</label>
+              <input type="text" inputmode="numeric" id="ha-weight-kg" placeholder="可选" style="width:90px">
+              <label>地址</label>
+              <input type="text" id="ha-address" placeholder="请输入地址" style="flex:1;max-width:320px">
             </div>
+          </div>
+          <div class="health-section">
+          <div class="form-row">
+            <div class="health-group-title">健康状况与习惯</div>
+            <label>既往史</label>
+            <input type="text" id="ha-past-medical-history" style="flex:1;max-width:220px">
+            <label>家族史</label>
+            <input type="text" id="ha-family-history" style="flex:1;max-width:220px">
+            <label>过敏史</label>
+            <label><input type="radio" name="ha-allergy-history" value="无">无</label>
+            <label><input type="radio" name="ha-allergy-history" value="有">有</label>
+            <label>过敏史</label>
+            <input type="text" id="ha-allergy-details" style="flex:1;max-width:220px">
+          </div>
+          <div class="form-row">
+            <label>吸烟情况</label>
+            <label><input type="radio" name="ha-smoking-status" value="无">无</label>
+            <label><input type="radio" name="ha-smoking-status" value="有">有</label>
+            <label>烟龄</label>
+            <input type="text" inputmode="numeric" id="ha-smoking-years" style="width:90px">
+            <span>年</span>
+            <input type="text" inputmode="numeric" id="ha-cigarettes-per-day" style="width:90px">
+            <span>支/日</span>
+            <label>饮酒</label>
+            <label><input type="radio" name="ha-drinking-status" value="无">无</label>
+            <label><input type="radio" name="ha-drinking-status" value="有">有</label>
+            <label>饮酒</label>
+            <input type="text" inputmode="numeric" id="ha-drinking-years" style="width:90px">
+            <span>年</span>
+          </div>
+          <div class="form-row">
+            <label>近一个月有无感觉疲劳</label>
+            <label><input type="radio" name="ha-fatigue-last-month" value="无">无</label>
+            <label><input type="radio" name="ha-fatigue-last-month" value="稍微疲劳">稍微疲劳</label>
+            <label><input type="radio" name="ha-fatigue-last-month" value="比较疲劳">比较疲劳</label>
+            <label>目前的睡眠状况</label>
+            <label><input type="radio" name="ha-sleep-quality" value="很差">很差</label>
+            <label><input type="radio" name="ha-sleep-quality" value="差">差</label>
+            <label><input type="radio" name="ha-sleep-quality" value="一般">一般</label>
+          </div>
+          <div class="form-row">
+            <label>睡眠时间</label>
+            <label><input type="radio" name="ha-sleep-hours" value="<6小时">&lt;6小时</label>
+            <label><input type="radio" name="ha-sleep-hours" value="6-8小时">6-8小时</label>
+            <label><input type="radio" name="ha-sleep-hours" value="9-10小时">9-10小时</label>
+            <label>近半年血压检测情况</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="未监测">未监测</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="监测：正常">监测：正常</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="监测：偏低">监测：偏低</label>
+            <label><input type="radio" name="ha-blood-pressure-test" value="监测：偏高">监测：偏高</label>
+          </div>
+          <div class="form-row">
+            <label>近半年血脂检测情况</label>
+            <label><input type="radio" name="ha-blood-lipid-test" value="未监测">未监测</label>
+            <label><input type="radio" name="ha-blood-lipid-test" value="监测：正常">监测：正常</label>
+            <label><input type="radio" name="ha-blood-lipid-test" value="监测：偏高">监测：偏高</label>
+            <label>是否经常肩颈部、腰部、关节疼痛情况</label>
+            <label><input type="radio" name="ha-chronic-pain" value="无">无</label>
+            <label><input type="radio" name="ha-chronic-pain" value="有">有</label>
+            <label>详细情况</label>
+            <input type="text" id="ha-pain-details" style="flex:1;max-width:320px">
+          </div>
+          </div>
+          <div class="health-section">
+          <div class="form-row">
+            <label>锻炼方式（多选）</label>
+            <div id="health-exercise-methods" style="display:flex;flex-wrap:wrap;gap:10px;flex:1">
+              <label><input type="checkbox" name="health-exercise-method" value="散步">散步</label>
+              <label><input type="checkbox" name="health-exercise-method" value="一般家务">一般家务</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打太极">打太极</label>
+              <label><input type="checkbox" name="health-exercise-method" value="快步走">快步走</label>
+              <label><input type="checkbox" name="health-exercise-method" value="爬楼梯">爬楼梯</label>
+              <label><input type="checkbox" name="health-exercise-method" value="跳广场舞">跳广场舞</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打网球">打网球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打羽毛球">打羽毛球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打乒乓球">打乒乓球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="骑自行车">骑自行车</label>
+              <label><input type="checkbox" name="health-exercise-method" value="打篮球">打篮球</label>
+              <label><input type="checkbox" name="health-exercise-method" value="跑步">跑步</label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>平均每周锻炼频次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value="<3次">&lt;3次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value="3-4次">3-4次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value="5-7次">5-7次</label>
+            <label><input type="radio" name="ha-weekly-exercise-freq" value=">7次">&gt;7次</label>
+          </div>
+          <div class="form-row">
+            <label>其他健康所需（多选）</label>
+            <div id="health-needs" style="display:flex;flex-wrap:wrap;gap:10px;flex:1">
+              <label><input type="checkbox" name="health-need" value="疾病筛查">疾病筛查</label>
+              <label><input type="checkbox" name="health-need" value="就医陪诊">就医陪诊</label>
+              <label><input type="checkbox" name="health-need" value="中医养生">中医养生</label>
+              <label><input type="checkbox" name="health-need" value="康复治疗">康复治疗</label>
+              <label><input type="checkbox" name="health-need" value="健康体检">健康体检</label>
+              <label><input type="checkbox" name="health-need" value="心理咨询">心理咨询</label>
+              <label><input type="checkbox" name="health-need" value="计划免疫">计划免疫</label>
+              <label><input type="checkbox" name="health-need" value="运动养生">运动养生</label>
+              <label><input type="checkbox" name="health-need" value="健康教育">健康教育</label>
+              <label><input type="checkbox" name="health-need" value="远程医疗服务">远程医疗服务</label>
+            </div>
+            <label>其他</label>
+            <input type="text" id="ha-health-needs-other" style="flex:1;max-width:240px">
+          </div>
           </div>
           <div class="form-row">
             <label>备注</label>
