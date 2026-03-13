@@ -125,11 +125,6 @@
       <div id="page-health" class="page hide">
         <div class="card">
           <h2>健康评估档案</h2>
-          <div class="search-bar">
-            <input type="text" id="health-search" placeholder="按姓名查询历史档案">
-            <button class="btn btn-primary" id="btn-health-search">查询</button>
-            <button class="btn btn-secondary" id="btn-health-reset">显示全部</button>
-          </div>
           <div class="health-section">
             <div class="form-row">
               <label>日期</label>
@@ -225,7 +220,13 @@
           </div>
           <div id="health-msg"></div>
           <h3>历史记录</h3>
+          <div class="search-bar">
+            <input type="text" id="health-search" placeholder="按姓名查询历史档案">
+            <button class="btn btn-primary" id="btn-health-search">查询</button>
+            <button class="btn btn-secondary" id="btn-health-reset">显示全部</button>
+          </div>
           <table><thead><tr><th>客户</th><th>日期</th><th>身高</th><th>体重</th><th>疲劳</th><th>睡眠</th><th>锻炼频次</th><th>病史</th><th>操作</th></tr></thead><tbody id="health-list"></tbody></table>
+          <div id="health-detail" class="health-section" style="display:none;margin-top:14px"></div>
         </div>
       </div>
       <div id="page-appointments" class="page hide">
