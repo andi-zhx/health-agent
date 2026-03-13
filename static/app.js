@@ -31,7 +31,6 @@
     if (name === 'health') loadHealthPage();
     if (name === 'appointments') loadAppointmentsPage();
     if (name === 'home-appointments') loadHomeAppointmentsPage();
-    if (name === 'checkins') loadCheckinsPage();
     if (name === 'usage') loadUsagePage();
     if (name === 'surveys') loadSurveysPage();
     if (name === 'query-export') loadQueryExportPage();
@@ -454,20 +453,6 @@
     });
   }
 
-  function loadCheckinsPage() {
-    fillCustomerSelect('checkin-customer');
-    var now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('checkin-time').value = now.toISOString().slice(0, 16);
-    get('/api/visit-checkins').then(function (list) {
-      var tbody = document.getElementById('checkin-list');
-      tbody.innerHTML = toList(list).map(function (v) {
-        return '<tr><td>' + (v.customer_name || '') + '</td><td>' + (v.checkin_time || '') + '</td><td>' + (v.purpose || '-') + '</td><td>' + (v.notes || '-') + '</td></tr>';
-      }).join('');
-    });
-  }
-
-
   function checkAppointmentAvailability() {
     var date = document.getElementById('apt-date').value;
     var projectId = document.getElementById('apt-project').value;
@@ -542,14 +527,33 @@
   }
 
   function loadUsagePage() {
-    fillCustomerSelect('usage-customer');
-    fillEquipmentSelect('usage-equipment');
-    get('/api/equipment-usage').then(function (list) {
-      var tbody = document.getElementById('usage-list');
-      tbody.innerHTML = toList(list).map(function (u) {
-        return '<tr><td>' + (u.customer_name || '') + '</td><td>' + (u.equipment_name || '') + '</td><td>' + (u.usage_date || '') + '</td><td>' + (u.duration_minutes || '-') + '</td><td>' + (u.operator || '-') + '</td></tr>';
-      }).join('');
+    get('/api/equipment-usage/service-stats').then(function (res) {
+      if (res.error) { showMsg('usage-msg', res.error, true); return; }
+      renderUsagePopularity(toList(res.items), res.total || 0);
     });
+  }
+
+  function renderUsagePopularity(items, total) {
+    var tbody = document.getElementById('usage-list');
+    var chart = document.getElementById('usage-popularity-chart');
+    if (!tbody || !chart) return;
+    if (!items.length) {
+      chart.innerHTML = '<p style="color:#666">暂无预约服务数据</p>';
+      tbody.innerHTML = '<tr><td colspan="4">暂无数据</td></tr>';
+      return;
+    }
+    var max = Math.max.apply(null, items.map(function (x) { return x.appointment_count || 0; }).concat([1]));
+    chart.innerHTML = items.map(function (x, idx) {
+      var count = x.appointment_count || 0;
+      var pct = Math.round((count / max) * 100);
+      return '<div class="trend-bar"><div class="date">TOP' + (idx + 1) + ' ' + (x.project_name || '未命名项目') + '</div><div class="bar"><span style="width:' + pct + '%"></span></div><div class="value">' + count + '</div></div>';
+    }).join('');
+    tbody.innerHTML = items.map(function (x, idx) {
+      var count = x.appointment_count || 0;
+      var ratio = total ? ((count * 100 / total).toFixed(1) + '%') : '0%';
+      return '<tr><td>' + (idx + 1) + '</td><td>' + (x.project_name || '-') + '</td><td>' + count + '</td><td>' + ratio + '</td></tr>';
+    }).join('');
+    showMsg('usage-msg', '已自动统计预约服务共 ' + total + ' 条记录，当前最受欢迎项目：' + (items[0].project_name || '-'));
   }
 
   function loadSurveysPage() {
@@ -790,26 +794,6 @@
     });
   });
 
-  document.getElementById('btn-checkin-save').addEventListener('click', function () {
-    var cid = document.getElementById('checkin-customer').value;
-    if (!cid) { showMsg('checkin-msg', '请选择客户', true); return; }
-    var t = document.getElementById('checkin-time').value;
-    if (!t) {
-      var d = new Date();
-      t = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-    }
-    var body = {
-      customer_id: parseInt(cid, 10),
-      checkin_time: t.replace('T', ' ').slice(0, 16),
-      purpose: document.getElementById('checkin-purpose').value,
-      notes: document.getElementById('checkin-notes').value
-    };
-    post('/api/visit-checkins', body).then(function (res) {
-      if (res.error) { showMsg('checkin-msg', res.error, true); return; }
-      showMsg('checkin-msg', res.message);
-      loadCheckinsPage();
-    });
-  });
 
   document.getElementById('btn-home-save').addEventListener('click', function () {
     var body = {
@@ -857,25 +841,6 @@
     showMsg('home-msg', '已退出编辑');
   });
 
-  document.getElementById('btn-usage-save').addEventListener('click', function () {
-    var body = {
-      customer_id: document.getElementById('usage-customer').value,
-      equipment_id: document.getElementById('usage-equipment').value,
-      usage_date: document.getElementById('usage-date').value,
-      duration_minutes: document.getElementById('usage-duration').value || null,
-      parameters: document.getElementById('usage-params').value,
-      operator: document.getElementById('usage-operator').value
-    };
-    if (!body.customer_id || !body.equipment_id || !body.usage_date) {
-      showMsg('usage-msg', '请选择客户、设备和日期', true);
-      return;
-    }
-    post('/api/equipment-usage', body).then(function (res) {
-      if (res.error) { showMsg('usage-msg', res.error, true); return; }
-      showMsg('usage-msg', res.message);
-      loadUsagePage();
-    });
-  });
 
   document.getElementById('btn-survey-save').addEventListener('click', function () {
     var cid = document.getElementById('survey-customer').value;
@@ -927,6 +892,18 @@
     });
   });
 
+
+  document.getElementById('btn-backup-path-select').addEventListener('click', function () {
+    post('/api/system/backup-path/select', {}).then(function (res) {
+      if (!res || res.error) {
+        showMsg('query-export-msg', (res && res.error) || '暂时无法打开本地路径选择框，请手动输入路径', true);
+        return;
+      }
+      document.getElementById('backup-path').value = res.backup_directory || '';
+      showMsg('query-export-msg', '已选择备份路径：' + (res.backup_directory || ''));
+    });
+  });
+
   document.getElementById('btn-backup-path-save').addEventListener('click', function () {
     var backupPath = (document.getElementById('backup-path').value || '').trim();
     if (!backupPath) {
@@ -959,12 +936,11 @@
     var url = '/api/search?type=' + type + (q ? '&q=' + encodeURIComponent(q) : '');
     get(url).then(function (data) {
       var html = '';
-      var labels = { customers: '客户信息', health_records: '健康档案', appointments: '预约记录', visit_checkins: '来访签到', equipment_usage: '仪器使用', surveys: '满意度' };
+      var labels = { customers: '客户信息', health_records: '健康档案', appointments: '预约记录', equipment_usage: '仪器使用', surveys: '满意度' };
       var cols = {
         customers: ['name', 'id_card', 'phone', 'address'],
         health_records: ['customer_name', 'record_date', 'height_cm', 'weight_kg', 'blood_pressure', 'symptoms', 'diagnosis'],
         appointments: ['customer_name', 'equipment_name', 'appointment_date', 'start_time', 'end_time', 'status'],
-        visit_checkins: ['customer_name', 'checkin_time', 'purpose', 'notes'],
         equipment_usage: ['customer_name', 'equipment_name', 'usage_date', 'duration_minutes', 'operator'],
         surveys: ['customer_name', 'overall_rating', 'feedback', 'survey_date']
       };
@@ -990,7 +966,6 @@
   document.getElementById('health-date').value = today;
   document.getElementById('apt-date').value = today;
   document.getElementById('home-date').value = today;
-  document.getElementById('usage-date').value = today;
   refreshQueryExportScope();
 
   function fillHealthForm(data) {
