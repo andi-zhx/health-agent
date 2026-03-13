@@ -231,6 +231,14 @@ def init_db():
         )
     ''')
 
+    ensure_columns(c, 'equipment', {
+        'model': 'TEXT',
+        'location': 'TEXT',
+        'status': "TEXT DEFAULT 'available'",
+        'description': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
+
     c.execute('''
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,8 +259,15 @@ def init_db():
     ''')
 
     ensure_columns(c, 'appointments', {
+        'equipment_id': 'INTEGER',
         'project_id': 'INTEGER',
         'staff_id': 'INTEGER',
+        'appointment_date': 'TEXT',
+        'start_time': 'TEXT',
+        'end_time': 'TEXT',
+        'status': "TEXT DEFAULT 'scheduled'",
+        'notes': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
         'updated_at': "TEXT DEFAULT CURRENT_TIMESTAMP",
     })
 
@@ -342,6 +357,17 @@ def init_db():
         )
     ''')
 
+    ensure_columns(c, 'therapy_projects', {
+        'category': 'TEXT',
+        'duration_minutes': 'INTEGER',
+        'need_equipment': 'INTEGER DEFAULT 0',
+        'equipment_type': 'TEXT',
+        'price': 'REAL',
+        'status': "TEXT DEFAULT 'enabled'",
+        'description': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
+
     c.execute('''
         CREATE TABLE IF NOT EXISTS service_projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -372,6 +398,14 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    ensure_columns(c, 'staff', {
+        'role': 'TEXT',
+        'phone': 'TEXT',
+        'status': "TEXT DEFAULT 'available'",
+        'notes': 'TEXT',
+        'created_at': 'TEXT DEFAULT CURRENT_TIMESTAMP',
+    })
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS home_appointments (
