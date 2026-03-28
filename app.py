@@ -1,10 +1,10 @@
 """
-医疗客户与健康档案管理系统 - 单机版
+健康管理客户与健康档案管理系统 - 单机版
 仅需 Python：运行后浏览器访问 http://localhost:5000
 数据存于 PostgreSQL，无 Node/npm 依赖
 """
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, session
 import psycopg2
 from psycopg2 import extras
 import os
@@ -12,6 +12,8 @@ import pandas as pd
 import json
 import logging
 import subprocess
+import threading
+import time
 from datetime import datetime
 from datetime import timedelta
 
@@ -25,6 +27,9 @@ except Exception:
 # 项目根目录（app.py 所在目录）
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
+app.secret_key = os.getenv('APP_SECRET_KEY', 'health-agent-local-secret-key')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 DEFAULT_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:5432/health_agent'
 DATABASE_URL = os.getenv('DATABASE_URL', DEFAULT_DATABASE_URL)
@@ -40,6 +45,12 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
 )
+
+DEFAULT_USERS = [
+    ('001', '123456', 'admin', '管理员'),
+    ('002', '123456', 'user', '普通用户1'),
+]
+AUTO_BACKUP_THREAD_STARTED = False
 
 
 def _normalize_sqlite_compat_sql(sql):
@@ -180,7 +191,7 @@ def create_db_backup(backup_type='manual', notes=''):
     os.makedirs(backup_dir, exist_ok=True)
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    fn = f'medical_system_{ts}.sql'
+    fn = f'health_management_system_{ts}.sql'
     fp = os.path.join(backup_dir, fn)
     try:
         result = subprocess.run(['pg_dump', DATABASE_URL, '-f', fp], capture_output=True, text=True)
@@ -231,6 +242,20 @@ def set_setting_value(key, value):
 
 def get_backup_directory():
     return get_setting_value('backup_directory', BACKUP_FOLDER)
+
+
+def _parse_date_range(default_days=7):
+    end_date_raw = (request.args.get('end_date') or '').strip()
+    start_date_raw = (request.args.get('start_date') or '').strip()
+    end_date = datetime.now().date()
+    if end_date_raw:
+        end_date = datetime.strptime(end_date_raw, '%Y-%m-%d').date()
+    start_date = end_date - timedelta(days=default_days - 1)
+    if start_date_raw:
+        start_date = datetime.strptime(start_date_raw, '%Y-%m-%d').date()
+    if start_date > end_date:
+        raise ValueError('开始日期不能晚于结束日期')
+    return start_date, end_date
 
 
 def parse_multi_value(value):
@@ -606,6 +631,27 @@ def init_db():
 
     c.execute('INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)',
               ('backup_directory', BACKUP_FOLDER))
+    c.execute('INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)',
+              ('auto_backup_enabled', '1'))
+    c.execute('INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)',
+              ('auto_backup_last_date', ''))
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS user_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    for username, password, role, display_name in DEFAULT_USERS:
+        c.execute('''
+            INSERT OR IGNORE INTO user_accounts (username, password, role, display_name)
+            VALUES (?, ?, ?, ?)
+        ''', (username, password, role, display_name))
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS satisfaction_surveys (
@@ -776,6 +822,44 @@ def index():
 @app.route('/<path:path>')
 def static_file(path):
     return send_from_directory(app.static_folder, path)
+
+
+# ========== 登录鉴权 ==========
+@app.route('/api/auth/login', methods=['POST'])
+def api_auth_login():
+    body = request.get_json(silent=True) or {}
+    username = (body.get('username') or '').strip()
+    password = (body.get('password') or '').strip()
+    if not username or not password:
+        return jsonify({'error': '请输入账号和密码'}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        'SELECT username, role, display_name FROM user_accounts WHERE username=? AND password=?',
+        (username, password)
+    )
+    user = c.fetchone()
+    conn.close()
+    if not user:
+        return jsonify({'error': '账号或密码错误'}), 401
+
+    session['user'] = dict(user)
+    return jsonify({'message': '登录成功', 'user': dict(user)})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_auth_logout():
+    session.pop('user', None)
+    return jsonify({'message': '已退出登录'})
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_auth_me():
+    user = session.get('user')
+    if not user:
+        return jsonify({'authenticated': False, 'user': None}), 401
+    return jsonify({'authenticated': True, 'user': user})
 
 
 # ========== 客户 ==========
@@ -1786,7 +1870,7 @@ def api_search():
     q = (request.args.get('q') or '').strip()
     kind = request.args.get('type', 'all')
     if not q and kind == 'all':
-        return jsonify({'customers': [], 'health_records': [], 'appointments': [], 'visit_checkins': [], 'equipment_usage': [], 'surveys': []})
+        return jsonify({'customers': [], 'health_records': [], 'appointments': [], 'equipment_usage': [], 'surveys': []})
 
     conn = get_db()
     c = conn.cursor()
@@ -1810,11 +1894,6 @@ def api_search():
             ORDER BY a.appointment_date DESC, a.start_time DESC LIMIT 100''', (like, like, like, like))
         result['appointments'] = row_list(c.fetchall())
 
-    if kind in ('all', 'checkins'):
-        c.execute('SELECT v.*, c.name as customer_name FROM visit_checkins v JOIN customers c ON v.customer_id=c.id WHERE c.name LIKE ? OR c.id_card LIKE ? OR c.phone LIKE ? OR v.purpose LIKE ? OR v.notes LIKE ? ORDER BY v.checkin_time DESC LIMIT 100',
-                  (like, like, like, like, like))
-        result['visit_checkins'] = row_list(c.fetchall())
-
     if kind in ('all', 'usage'):
         c.execute('''SELECT eu.*, c.name as customer_name, e.name as equipment_name
             FROM equipment_usage eu JOIN customers c ON eu.customer_id=c.id JOIN equipment e ON eu.equipment_id=e.id
@@ -1827,7 +1906,7 @@ def api_search():
                   (like, like, like, like, like))
         result['surveys'] = row_list(c.fetchall())
 
-    for key in ('customers', 'health_records', 'appointments', 'visit_checkins', 'equipment_usage', 'surveys'):
+    for key in ('customers', 'health_records', 'appointments', 'equipment_usage', 'surveys'):
         if key not in result:
             result[key] = []
 
@@ -1838,14 +1917,26 @@ def api_search():
 # ========== 仪表盘 ==========
 @app.route('/api/dashboard/stats', methods=['GET'])
 def api_dashboard_stats():
+    try:
+        start_date, end_date = _parse_date_range(default_days=7)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     conn = get_db()
     c = conn.cursor()
+    start_text = start_date.strftime('%Y-%m-%d')
+    end_text = end_date.strftime('%Y-%m-%d')
     today = datetime.now().strftime('%Y-%m-%d')
     c.execute('SELECT COUNT(*) as n FROM customers')
     total_customers = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM appointments WHERE appointment_date=? AND status='scheduled'", (today,))
-    today_appointments = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM appointments WHERE appointment_date>=? AND status='scheduled'", (today,))
+    c.execute(
+        "SELECT COUNT(*) as n FROM appointments WHERE appointment_date BETWEEN ? AND ? AND status='scheduled'",
+        (start_text, end_text)
+    )
+    period_appointments = c.fetchone()['n']
+    c.execute(
+        "SELECT COUNT(*) as n FROM appointments WHERE appointment_date>=? AND status='scheduled'",
+        (today,)
+    )
     pending = c.fetchone()['n']
     c.execute('SELECT COUNT(*) as n FROM equipment')
     total_equipment = c.fetchone()['n']
@@ -1854,32 +1945,36 @@ def api_dashboard_stats():
     conn.close()
     return jsonify({
         'total_customers': total_customers,
-        'today_appointments': today_appointments,
+        'period_appointments': period_appointments,
         'pending_appointments': pending,
         'total_equipment': total_equipment,
         'available_equipment': available,
+        'period': {'start_date': start_text, 'end_date': end_text},
     })
 
 
 @app.route('/api/dashboard/analytics', methods=['GET'])
 def api_dashboard_analytics():
+    try:
+        start_date, end_date = _parse_date_range(default_days=7)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     conn = get_db()
     c = conn.cursor()
 
-    # 最近 7 天预约趋势（包含 0 值日期）
-    today = datetime.now().date()
-    start_day = today - timedelta(days=6)
+    # 自定义周期预约趋势（包含 0 值日期）
     c.execute('''
         SELECT appointment_date, COUNT(*) as n
         FROM appointments
         WHERE appointment_date BETWEEN ? AND ?
         GROUP BY appointment_date
         ORDER BY appointment_date
-    ''', (start_day.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')))
+    ''', (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
     appt_map = {row['appointment_date']: row['n'] for row in c.fetchall()}
     appointment_trend = []
-    for i in range(7):
-        day = start_day + timedelta(days=i)
+    day_count = (end_date - start_date).days + 1
+    for i in range(day_count):
+        day = start_date + timedelta(days=i)
         key = day.strftime('%Y-%m-%d')
         appointment_trend.append({'date': key, 'count': appt_map.get(key, 0)})
 
@@ -1887,9 +1982,10 @@ def api_dashboard_analytics():
     c.execute('''
         SELECT status, COUNT(*) as n
         FROM appointments
+        WHERE appointment_date BETWEEN ? AND ?
         GROUP BY status
         ORDER BY n DESC
-    ''')
+    ''', (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
     appointment_status = row_list(c.fetchall())
 
     # 设备使用统计（总时长 + 次数）
@@ -1898,11 +1994,11 @@ def api_dashboard_analytics():
                COUNT(eu.id) as usage_count,
                COALESCE(SUM(eu.duration_minutes), 0) as total_duration_minutes
         FROM equipment e
-        LEFT JOIN equipment_usage eu ON e.id = eu.equipment_id
+        LEFT JOIN equipment_usage eu ON e.id = eu.equipment_id AND eu.usage_date BETWEEN ? AND ?
         GROUP BY e.id, e.name
         ORDER BY total_duration_minutes DESC, usage_count DESC
         LIMIT 10
-    ''')
+    ''', (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
     equipment_usage_top = row_list(c.fetchall())
 
     # 满意度分析
@@ -1915,17 +2011,21 @@ def api_dashboard_analytics():
             ROUND(AVG(overall_rating), 2) as avg_overall,
             COUNT(*) as survey_count
         FROM satisfaction_surveys
-    ''')
+        WHERE DATE(survey_date) BETWEEN ? AND ?
+    ''', (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
     satisfaction = dict(c.fetchone())
 
     # 客户活跃度：有预约或有健康档案的客户
     c.execute('''
         SELECT COUNT(DISTINCT customer_id) as n FROM (
-            SELECT customer_id FROM appointments
+            SELECT customer_id FROM appointments WHERE appointment_date BETWEEN ? AND ?
             UNION ALL
-            SELECT customer_id FROM health_assessments
+            SELECT customer_id FROM health_assessments WHERE assessment_date BETWEEN ? AND ?
         )
-    ''')
+    ''', (
+        start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'),
+        start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'),
+    ))
     active_customers = c.fetchone()['n']
     c.execute('SELECT COUNT(*) as n FROM customers')
     total_customers = c.fetchone()['n']
@@ -1939,7 +2039,11 @@ def api_dashboard_analytics():
         'customer_activity': {
             'active_customers': active_customers,
             'total_customers': total_customers,
-        }
+        },
+        'period': {
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
+        },
     })
 
 
@@ -2119,6 +2223,40 @@ def api_system_backups():
     return jsonify(row_list(rows))
 
 
+def _run_daily_backup_once():
+    enabled = get_setting_value('auto_backup_enabled', '1')
+    if str(enabled).strip() in ('0', 'false', 'False'):
+        return
+    today = datetime.now().strftime('%Y-%m-%d')
+    last_date = get_setting_value('auto_backup_last_date', '')
+    if last_date == today:
+        return
+    result = create_db_backup(backup_type='auto', notes='每日自动备份')
+    if result.get('status') == 'success':
+        set_setting_value('auto_backup_last_date', today)
+        logging.info('daily auto backup success: %s', result.get('backup_file'))
+    else:
+        logging.warning('daily auto backup failed: %s', result.get('message'))
+
+
+def start_auto_backup_daemon():
+    global AUTO_BACKUP_THREAD_STARTED
+    if AUTO_BACKUP_THREAD_STARTED:
+        return
+    AUTO_BACKUP_THREAD_STARTED = True
+
+    def _worker():
+        while True:
+            try:
+                _run_daily_backup_once()
+            except Exception:
+                logging.exception('daily backup daemon loop error')
+            time.sleep(3600)
+
+    thread = threading.Thread(target=_worker, daemon=True, name='daily-backup-daemon')
+    thread.start()
+
+
 @app.route('/api/download/<filename>', methods=['GET'])
 def api_download(filename):
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
@@ -2126,5 +2264,6 @@ def api_download(filename):
 
 if __name__ == '__main__':
     init_db()
+    start_auto_backup_daemon()
     print('请在浏览器打开: http://localhost:5000')
     app.run(host='127.0.0.1', port=5000, debug=True)

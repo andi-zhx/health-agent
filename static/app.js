@@ -45,17 +45,21 @@
   }
 
   function loadStats() {
-    get('/api/dashboard/stats').then(function (data) {
+    get('/api/dashboard/stats' + periodQuery()).then(function (data) {
+      if (data.error) { showMsg('usage-msg', data.error, true); return; }
       var html = [
         { num: data.total_customers, label: '客户总数' },
-        { num: data.today_appointments, label: '今日预约' },
+        { num: data.period_appointments, label: '周期内预约' },
         { num: data.pending_appointments, label: '待处理预约' },
         { num: data.available_equipment + '/' + data.total_equipment, label: '可用设备' }
       ].map(function (s) { return '<div class="stat-box"><div class="num">' + s.num + '</div><div class="label">' + s.label + '</div></div>'; }).join('');
       document.getElementById('stats').innerHTML = html;
     }).catch(function () {});
 
-    get('/api/dashboard/analytics').then(function (data) {
+    get('/api/dashboard/analytics' + periodQuery()).then(function (data) {
+      if (data.error) { return; }
+      var period = data.period || {};
+      document.getElementById('appointment-trend-title').textContent = '预约趋势（' + (period.start_date || '-') + ' 至 ' + (period.end_date || '-') + '）';
       renderAppointmentTrend(data.appointment_trend || []);
       renderAppointmentStatus(data.appointment_status || []);
       renderEquipmentUsageTop(data.equipment_usage_top || []);
@@ -175,6 +179,7 @@
 
 
   var pendingAction = null;
+  var currentUser = null;
   var customerEditSnapshot = null;
   var selectedHealthDetailId = '';
   var editingHealthSnapshot = null;
@@ -184,6 +189,36 @@
   var appointmentProjects = [];
   var appointmentEquipment = [];
   var projectEquipmentMap = { '听力测试': '听力耳机', '高压氧仓': '高压氧仓', '艾灸': '艾灸', '按摩': '按摩机' };
+
+  function getStatsPeriod() {
+    return {
+      start_date: (document.getElementById('stats-start-date').value || '').trim(),
+      end_date: (document.getElementById('stats-end-date').value || '').trim()
+    };
+  }
+
+  function periodQuery() {
+    var p = getStatsPeriod();
+    return '?start_date=' + encodeURIComponent(p.start_date) + '&end_date=' + encodeURIComponent(p.end_date);
+  }
+
+  function setCurrentUser(user) {
+    currentUser = user || null;
+    var userText = currentUser ? ((currentUser.display_name || currentUser.username || '') + '（' + (currentUser.role === 'admin' ? '管理员' : '普通用户') + '）') : '未登录';
+    document.getElementById('current-user').textContent = userText;
+    var isAdmin = currentUser && currentUser.role === 'admin';
+    ['btn-backup-path-save', 'btn-backup-path-select', 'btn-backup-now'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = isAdmin ? 'inline-flex' : 'none';
+    });
+  }
+
+  function loginSuccess(user) {
+    setCurrentUser(user);
+    document.getElementById('login-mask').classList.add('hide');
+    document.getElementById('app-shell').classList.remove('hide');
+    showPage('home');
+  }
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -962,10 +997,61 @@
     });
   });
 
+  document.getElementById('btn-stats-apply').addEventListener('click', function () {
+    var p = getStatsPeriod();
+    if (!p.start_date || !p.end_date) {
+      showMsg('usage-msg', '请选择统计周期的开始和结束日期', true);
+      return;
+    }
+    if (p.start_date > p.end_date) {
+      showMsg('usage-msg', '开始日期不能晚于结束日期', true);
+      return;
+    }
+    loadStats();
+  });
+
+  document.getElementById('btn-stats-last7').addEventListener('click', function () {
+    var end = new Date();
+    var start = new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
+    document.getElementById('stats-end-date').value = end.toISOString().slice(0, 10);
+    document.getElementById('stats-start-date').value = start.toISOString().slice(0, 10);
+    loadStats();
+  });
+
+  document.getElementById('btn-login').addEventListener('click', function () {
+    var username = (document.getElementById('login-username').value || '').trim();
+    var password = (document.getElementById('login-password').value || '').trim();
+    var role = document.getElementById('login-role').value;
+    if (!username || !password) {
+      showMsg('login-msg', '请输入账号和密码', true);
+      return;
+    }
+    post('/api/auth/login', { username: username, password: password }).then(function (res) {
+      if (res.error) { showMsg('login-msg', res.error, true); return; }
+      if (!res.user || res.user.role !== role) {
+        showMsg('login-msg', '角色与账号不匹配，请重新选择角色', true);
+        return;
+      }
+      showMsg('login-msg', '');
+      loginSuccess(res.user);
+    });
+  });
+
+  document.getElementById('btn-logout').addEventListener('click', function () {
+    post('/api/auth/logout', {}).then(function () {
+      setCurrentUser(null);
+      document.getElementById('app-shell').classList.add('hide');
+      document.getElementById('login-mask').classList.remove('hide');
+      showMsg('login-msg', '已退出登录');
+    });
+  });
+
   var today = new Date().toISOString().slice(0, 10);
   document.getElementById('health-date').value = today;
   document.getElementById('apt-date').value = today;
   document.getElementById('home-date').value = today;
+  document.getElementById('stats-end-date').value = today;
+  document.getElementById('stats-start-date').value = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   refreshQueryExportScope();
 
   function fillHealthForm(data) {
@@ -1008,5 +1094,12 @@
     showMsg('health-msg', '', false);
   }
 
-  showPage('home');
+  get('/api/auth/me').then(function (res) {
+    if (res && res.authenticated && res.user) {
+      loginSuccess(res.user);
+      return;
+    }
+    document.getElementById('login-mask').classList.remove('hide');
+    document.getElementById('app-shell').classList.add('hide');
+  });
 })();

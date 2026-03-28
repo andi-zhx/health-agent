@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-医疗档案管理 - 桌面启动器
+健康管理档案管理 - 桌面启动器
 双击运行后：弹出提示窗口，自动打开浏览器进行操作。关闭窗口即停止服务。
 """
 from __future__ import print_function
@@ -78,7 +78,7 @@ def show_error(title, msg):
 
 def main():
     if not sys.executable:
-        show_error('医疗系统启动失败', '未检测到 Python 解释器。')
+        show_error('健康管理系统启动失败', '未检测到 Python 解释器。')
         sys.exit(1)
 
     os.makedirs(os.path.join(SCRIPT_DIR, 'exports'), exist_ok=True)
@@ -87,14 +87,14 @@ def main():
 
     # 延迟导入，便于在 import 失败时也能弹窗报错
     try:
-        from app import app, init_db
+        from app import app, init_db, start_auto_backup_daemon
     except ModuleNotFoundError as e:
         ok, info = install_requirements_auto()
         if ok:
             try:
-                from app import app, init_db
+                from app import app, init_db, start_auto_backup_daemon
             except Exception as e2:
-                show_error('医疗系统启动失败', '已自动安装依赖，但重新导入仍失败：%s\n\n%s' % (e2, traceback.format_exc()))
+                show_error('健康管理系统启动失败', '已自动安装依赖，但重新导入仍失败：%s\n\n%s' % (e2, traceback.format_exc()))
                 sys.exit(1)
         else:
             tip = (
@@ -104,10 +104,10 @@ def main():
                 '2. 在命令行执行："%s" -m pip install -r requirements.txt\n\n'
                 '%s'
             ) % (e, sys.executable, info)
-            show_error('医疗系统启动失败', tip)
+            show_error('健康管理系统启动失败', tip)
             sys.exit(1)
     except Exception as e:
-        show_error('医疗系统启动失败', '导入失败：%s\n\n%s' % (e, traceback.format_exc()))
+        show_error('健康管理系统启动失败', '导入失败：%s\n\n%s' % (e, traceback.format_exc()))
         sys.exit(1)
 
     import threading
@@ -125,6 +125,7 @@ def main():
 
     try:
         init_db()
+        start_auto_backup_daemon()
         try:
             from app import create_db_backup
             create_db_backup('startup', notes='启动时自动备份')
@@ -132,7 +133,7 @@ def main():
         except Exception:
             write_start_log('启动时自动备份失败。')
     except Exception as e:
-        show_error('医疗系统启动失败', '数据库初始化失败：%s\n\n%s' % (e, traceback.format_exc()))
+        show_error('健康管理系统启动失败', '数据库初始化失败：%s\n\n%s' % (e, traceback.format_exc()))
         sys.exit(1)
 
     # 在后台线程启动 Flask
@@ -161,12 +162,12 @@ def main():
     try:
         import tkinter as tk
     except ImportError:
-        show_error('医疗系统启动', '系统已启动，请在浏览器打开: %s\n\n未安装 tkinter，无法显示提示窗口。' % URL)
+        show_error('健康管理系统启动', '系统已启动，请在浏览器打开: %s\n\n未安装 tkinter，无法显示提示窗口。' % URL)
         return
 
     try:
         root = tk.Tk()
-        root.title('医疗档案管理')
+        root.title('健康管理档案管理')
         root.resizable(False, False)
 
         w, h = 420, 160
@@ -177,7 +178,7 @@ def main():
         frame = tk.Frame(root, padx=24, pady=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(frame, text='医疗档案管理系统已启动', font=('Microsoft YaHei', 12, 'bold')).pack(anchor='w')
+        tk.Label(frame, text='健康管理档案管理系统已启动', font=('Microsoft YaHei', 12, 'bold')).pack(anchor='w')
         tk.Label(
             frame,
             text='浏览器已自动打开，可在页面中操作。\n关闭本窗口将停止服务。',
@@ -205,7 +206,7 @@ def main():
         root.protocol('WM_DELETE_WINDOW', on_closing)
         root.mainloop()
     except Exception as e:
-        show_error('医疗系统启动失败', str(e) + '\n\n' + traceback.format_exc())
+        show_error('健康管理系统启动失败', str(e) + '\n\n' + traceback.format_exc())
         sys.exit(1)
 
 
@@ -213,5 +214,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as e:
-        show_error('医疗系统启动失败', str(e) + '\n\n' + traceback.format_exc())
+        show_error('健康管理系统启动失败', str(e) + '\n\n' + traceback.format_exc())
         sys.exit(1)

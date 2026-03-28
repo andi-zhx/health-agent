@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
-echo 正在安装医疗系统所需依赖...
+echo 正在安装健康管理系统所需依赖...
 echo.
 
 python -m pip install -r requirements.txt
@@ -21,6 +21,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo 依赖安装完成。现在可双击「启动医疗系统.bat」或「启动医疗系统.pyw」启动程序。
+echo 依赖安装完成。现在可双击「启动脚本.bat」或「启动脚本.pyw」启动程序。
 echo.
 pause
