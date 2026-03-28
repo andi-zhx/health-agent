@@ -183,10 +183,14 @@
     .health-item.full { width: 100%; overflow-x: auto; }
     .health-item .item-title { font-weight: 600; color: #111; margin-right: 4px; }
     .health-item input[type="text"], .health-item input[type="date"], .health-item select { min-width: 90px; }
+    #app-shell.hide { display: none; }
+    .login-mask { position: fixed; inset: 0; background: rgba(13,13,16,.45); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .login-panel { background: #fff; border-radius: 20px; width: 420px; max-width: 100%; padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,.2); }
+    .login-panel h2 { margin: 0 0 12px; font-size: 24px; }
   </style>
 </head>
 <body>
-  <div class="app">
+  <div id="app-shell" class="app hide">
     <nav class="sidebar">
       <h1>superpower</h1>
       <small>Biohealth Console</small>
@@ -202,16 +206,28 @@
     <main class="main">
       <div class="topbar">
         <div class="topbar-tabs"><span>Home</span><span class="active">Data</span><span>Protocol</span><span>Concierge</span><span>Services</span></div>
-        <div class="topbar-actions"><span>Invite Friend</span><span>👜</span><div class="avatar"></div></div>
+        <div class="topbar-actions">
+          <span id="current-user">未登录</span>
+          <button class="btn btn-secondary btn-small" id="btn-logout">退出登录</button>
+          <div class="avatar"></div>
+        </div>
       </div>
       <div id="page-home" class="page">
         <div class="card">
           <h2>核心概览</h2>
+          <div class="form-row" style="margin-bottom:14px">
+            <label>统计周期</label>
+            <input type="date" id="stats-start-date">
+            <span>至</span>
+            <input type="date" id="stats-end-date">
+            <button class="btn btn-secondary btn-small" id="btn-stats-apply">同步更新</button>
+            <button class="btn btn-secondary btn-small" id="btn-stats-last7">最近7天</button>
+          </div>
           <div class="stats" id="stats"></div>
         </div>
         <div class="analytics-grid">
           <div class="card">
-            <h2>最近 7 天预约趋势</h2>
+            <h2 id="appointment-trend-title">预约趋势</h2>
             <div id="appointment-trend"></div>
           </div>
           <div class="card">
@@ -319,7 +335,7 @@
                     <label><input type="checkbox" name="health-need" value="计划免疫">计划免疫</label>
                     <label><input type="checkbox" name="health-need" value="运动养生">运动养生</label>
                     <label><input type="checkbox" name="health-need" value="健康教育">健康教育</label>
-                    <label><input type="checkbox" name="health-need" value="远程医疗服务">远程医疗服务</label>
+                    <label><input type="checkbox" name="health-need" value="远程健康服务">远程健康服务</label>
                   </div>
                   <span>其他</span><input type="text" id="ha-health-needs-other" style="min-width:180px">
                 </div>
@@ -497,6 +513,17 @@
         </div>
       </div>
     </main>
+  </div>
+  <div id="login-mask" class="login-mask">
+    <div class="login-panel">
+      <h2>健康管理服务系统登录</h2>
+      <p style="color:#666;margin:0 0 14px">请根据角色使用已创建账号登录。</p>
+      <div class="form-row"><label>角色</label><select id="login-role"><option value="admin">管理员</option><option value="user">普通用户</option></select></div>
+      <div class="form-row"><label>账号</label><input type="text" id="login-username" placeholder="管理员:001 / 普通用户:002"></div>
+      <div class="form-row"><label>密码</label><input type="password" id="login-password" placeholder="123456"></div>
+      <div class="form-row"><button class="btn btn-primary" id="btn-login">登录</button></div>
+      <div id="login-msg"></div>
+    </div>
   </div>
   <div id="modal-customer" class="modal-mask hide">
     <div class="modal">

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""双击此文件即可启动医疗档案管理（无黑框）。"""
+"""双击此文件即可启动健康管理档案管理（无黑框）。"""
 import os
 import sys
 import traceback
@@ -40,5 +40,5 @@ try:
     import launch
     launch.main()
 except Exception as e:
-    show_error('医疗系统启动失败', str(e) + '\n\n' + traceback.format_exc())
+    show_error('健康管理系统启动失败', str(e) + '\n\n' + traceback.format_exc())
     sys.exit(1)
