@@ -1,16 +1,17 @@
 """
 医疗客户与健康档案管理系统 - 单机版
 仅需 Python：运行后浏览器访问 http://localhost:5000
-数据存于 medical_system.db，无 Node/npm 依赖
+数据存于 PostgreSQL，无 Node/npm 依赖
 """
 
 from flask import Flask, request, jsonify, send_from_directory
-import sqlite3
+import psycopg2
+from psycopg2 import extras
 import os
 import pandas as pd
 import json
-import shutil
 import logging
+import subprocess
 from datetime import datetime
 from datetime import timedelta
 
@@ -25,7 +26,8 @@ except Exception:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
 
-DB_PATH = os.path.join(BASE_DIR, 'medical_system.db')
+DEFAULT_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:5432/health_agent'
+DATABASE_URL = os.getenv('DATABASE_URL', DEFAULT_DATABASE_URL)
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'exports')
 BACKUP_FOLDER = os.path.join(BASE_DIR, 'database_backups')
 LOG_FOLDER = os.path.join(BASE_DIR, 'logs')
@@ -40,11 +42,71 @@ logging.basicConfig(
 )
 
 
+def _normalize_sqlite_compat_sql(sql):
+    normalized = sql.replace('?', '%s')
+    normalized = normalized.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+    normalized = normalized.replace('excluded.', 'EXCLUDED.')
+    if 'INSERT OR IGNORE' in normalized:
+        normalized = normalized.replace('INSERT OR IGNORE INTO', 'INSERT INTO', 1)
+        normalized += ' ON CONFLICT DO NOTHING'
+    return normalized
+
+
+class CursorCompat:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.lastrowid = None
+
+    def execute(self, sql, params=None):
+        normalized_sql = _normalize_sqlite_compat_sql(sql)
+        self._cursor.execute(normalized_sql, params)
+        if normalized_sql.lstrip().upper().startswith('INSERT'):
+            try:
+                self._cursor.execute('SELECT LASTVAL() AS id')
+                row = self._cursor.fetchone()
+                self.lastrowid = row['id'] if isinstance(row, dict) else row[0]
+            except Exception:
+                self.lastrowid = None
+        return self
+
+    def executemany(self, sql, seq_of_params):
+        normalized_sql = _normalize_sqlite_compat_sql(sql)
+        self._cursor.executemany(normalized_sql, seq_of_params)
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class ConnectionCompat:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self):
+        return CursorCompat(self._conn.cursor())
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA journal_mode=WAL;')
-    return conn
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=extras.DictCursor)
+    return ConnectionCompat(conn)
 
 
 def row_list(rows):
@@ -52,16 +114,27 @@ def row_list(rows):
 
 
 def ensure_columns(cursor, table_name, columns):
-    cursor.execute(f'PRAGMA table_info({table_name})')
-    exists = {row[1] for row in cursor.fetchall()}
+    cursor.execute('''
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema='public' AND table_name=%s
+    ''', (table_name,))
+    exists = {row['column_name'] for row in cursor.fetchall()}
     for col, col_type in columns.items():
         if col not in exists:
             cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN {col} {col_type}')
 
 
 def table_exists(cursor, table_name):
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-    return cursor.fetchone() is not None
+    cursor.execute('''
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema='public' AND table_name=%s
+        ) AS exists
+    ''', (table_name,))
+    row = cursor.fetchone()
+    return bool(row and row['exists'])
 
 
 def load_projects_with_parallel_strategy(cursor, enabled_only=False, scene=None):
@@ -107,16 +180,16 @@ def create_db_backup(backup_type='manual', notes=''):
     os.makedirs(backup_dir, exist_ok=True)
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    fn = f'medical_system_{ts}.db'
+    fn = f'medical_system_{ts}.sql'
     fp = os.path.join(backup_dir, fn)
     try:
-        if os.path.exists(DB_PATH):
-            shutil.copy2(DB_PATH, fp)
+        result = subprocess.run(['pg_dump', DATABASE_URL, '-f', fp], capture_output=True, text=True)
+        if result.returncode == 0:
             status = 'success'
             msg = '备份成功'
         else:
             status = 'failed'
-            msg = '数据库文件不存在'
+            msg = f'备份失败: {result.stderr.strip() or "pg_dump 执行失败"}'
         conn = get_db()
         c = conn.cursor()
         c.execute('INSERT INTO db_backups (backup_file, backup_time, backup_type, status, notes) VALUES (?,?,?,?,?)',
@@ -149,7 +222,7 @@ def set_setting_value(key, value):
         INSERT INTO system_settings (setting_key, setting_value, updated_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(setting_key) DO UPDATE SET
-            setting_value=excluded.setting_value,
+            setting_value=EXCLUDED.setting_value,
             updated_at=CURRENT_TIMESTAMP
     ''', (key, value))
     conn.commit()
@@ -257,8 +330,12 @@ def init_db():
     ''')
 
     # 历史数据库兼容：缺失字段时自动补齐
-    c.execute('PRAGMA table_info(customers)')
-    customer_columns = {row[1] for row in c.fetchall()}
+    c.execute('''
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='customers'
+    ''')
+    customer_columns = {row['column_name'] for row in c.fetchall()}
     extra_customer_columns = {
         'diet_habits': 'TEXT',
         'chronic_diseases': 'TEXT',
@@ -687,7 +764,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print('数据库初始化完成，数据文件: %s' % DB_PATH)
+    print('数据库初始化完成，PostgreSQL DSN: %s' % DATABASE_URL)
 
 
 # ========== 静态页面 ==========
@@ -765,7 +842,8 @@ def api_customer_create():
         id = c.lastrowid
         conn.close()
         return jsonify({'id': id, 'message': '客户创建成功'}), 201
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        conn.rollback()
         conn.close()
         return jsonify({'error': '身份证号已存在'}), 400
 
